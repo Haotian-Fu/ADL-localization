@@ -18,7 +18,7 @@ import matplotlib.animation as animation
 import matplotlib as mpl
 mpl.rcParams['animation.ffmpeg_path'] = r'C:\ffmpeg\bin\ffmpeg.exe'  # Update this path if necessary
 
-def load_data(session_path, node_idx, pi_version=4):
+def load_data(session_path, node_idx, pi_version=3):
     """
     load complex data and datetime from raw data files
     """
@@ -442,8 +442,8 @@ def main():
     """
 
     # ========== 1) 基础配置 ==========
-    session_path = r"D:\OneDrive\桌面\code\ADL_localization\data\SB-94975U"
-    seg_file = r"D:\OneDrive\桌面\code\ADL_localization\data\SB-94975U\2024-11-22-17-17-48_SB-94975U.txt"
+    session_path = r"D:\OneDrive\桌面\code\ADL_localization\data\SB-94975U-2"
+    seg_file = r"D:\OneDrive\桌面\code\ADL_localization\data\SB-94975U-2\segment\2024-12-03-22-36-00_SB-94975U-2_shifted.txt"
 
     # 要使用的 3 个节点
     nodes_anc = ['2', '15', '16']
@@ -831,12 +831,34 @@ def save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmp
     plt.close(fig)
     print(f"Localization MP4 animation saved to: {mp4_save_path}")
 
+def plot_node_distance(range_data, node_id):
+    """
+    绘制指定节点的距离数据折线图。
+    参数：
+      range_data: 字典，key 为节点编号，value 为形状 (T,) 的距离数据数组。
+      node_id: 要绘制数据的节点编号（字符串）。
+    """
+    if node_id not in range_data:
+        print(f"节点 {node_id} 的数据不存在！")
+        return
+    distances = range_data[node_id]
+    frames = np.arange(len(distances))
+    plt.figure(figsize=(10, 5))
+    plt.plot(frames, distances, marker='o', linestyle='-', color='b', label=f'Distance of node {node_id}')
+    plt.xlabel("Frame Index")
+    plt.ylabel("Distance (m)")
+    plt.title(f"Distance Data for Node {node_id}")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
 # --------------------------
 # 主函数
 def main():
     # 配置各项路径与参数
-    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-94975U'
-    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-94975U\2024-11-22-17-17-48_SB-94975U.txt'
+    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
+    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
     nodes_anc = ['2', '15', '16']
     loc_nod = {
         '2':   [0.448,   3.1,  0],
@@ -846,35 +868,37 @@ def main():
         '16':  [8.572,   3.088,  0],
         '15':  [7.777,   1.386,  0]
     }
-    # 映射关系（如果需要）
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14}
-    
-    # 选择的活动段（此处暂未使用，可根据需要筛选数据）
     first_act, last_act = 6, 7
 
-    # 设置采样时间段
-    start_time = datetime(2024, 11, 22, 22, 43, 29, tzinfo=timezone.utc)
-    end_time = datetime(2024, 11, 22, 22, 43, 44, tzinfo=timezone.utc)
+    # 设置采样时间
+    start_time = datetime(2023, 6, 29, 20, 52, 34, tzinfo=timezone.utc)
+    end_time = datetime(2023, 6, 29, 20, 52, 46, tzinfo=timezone.utc)
     
-    # 计算距离数据
+    # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=100)
-    # 保存距离数据到文件
+    T = range_data[nodes_anc[0]].shape[0]
     save_path_distance = "distance_results.txt"
     save_range_data_txt(range_data, save_path_distance)
     
-    # 使用 LSE 定位，获得预测的 (x, y) 坐标，并保存至 loc_results.txt
+    # 2) LSE 定位，获得预测的 (x, y) 坐标
     loc_results_file = "loc_results.txt"
     loc_rdm_pred = lse_localization(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc=loc_results_file)
     
-    # 可视化生成动画
-    # 保存 GIF 和 MP4 动画，设定动画帧范围（例如帧 150 到 250）
+    # 将 loc_rdm_pred 转换为 NumPy 数组（已在 lse_localization 内转换）并打印信息
+    print("Localization Completed. Results shape:", loc_rdm_pred.shape)
+    print(f"Localization results saved to: {loc_results_file}")
+    
+    # 3) 绘制指定节点的距离数据折线图（例如，节点 '16'）
+    # plot_node_distance(range_data, '2')
+    
+    # 4) 生成动画：保存 GIF 和 MP4（帧范围示例：150 到 250）
     gif_save_path = 'localization_animation_21516.gif'
     mp4_save_path = 'localization_animation_21516.mp4'
-    # 修改 ffmpeg_path 为你实际的 FFmpeg 可执行文件路径
-    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'
+    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 请修改为你实际的 FFmpeg 路径
     
-    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=150, frame_end=250)
-    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=150, frame_end=250, ffmpeg_path=ffmpeg_path)
+    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=T-1)
+    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=0, frame_end=T-1, ffmpeg_path=ffmpeg_path)
 
 if __name__ == "__main__":
     main()
