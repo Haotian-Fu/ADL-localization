@@ -14,6 +14,9 @@ from config import nodes_info, nodes_info_pi4, room_info
 import imageio
 import matplotlib.animation as animation
 
+import warnings
+warnings.filterwarnings("ignore", message="set_ticklabels() should only be used with a fixed number of ticks")
+
 # Ensure Matplotlib can find FFmpeg
 import matplotlib as mpl
 mpl.rcParams['animation.ffmpeg_path'] = r'C:\ffmpeg\bin\ffmpeg.exe'  # Update this path if necessary
@@ -778,6 +781,22 @@ def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_lo
     print(f"3D Localization results saved to: {save_path_loc}")
     return loc_rdm_pred
 
+# --------------------------
+# 判断被观察者所处房间的函数（这里以矩形边界为例）
+def get_room_by_rect(x, y, rooms):
+    """
+    根据矩形区域判断点 (x,y) 所处房间
+    参数：
+       x, y: 被判断的坐标
+       rooms: dict, key 为房间名，value 为 (xmin, xmax, ymin, ymax)
+    返回：
+       房间名称，若没有匹配返回 "Unknown"
+    """
+    for room_name, (xmin, xmax, ymin, ymax) in rooms.items():
+        if xmin <= x <= xmax and ymin <= y <= ymax:
+            return room_name
+    return "Unknown"
+
 # 以下函数与之前的2D版本类似，此处不作修改（仅注意 loc_rdm_pred 改为 2D 数据），
 # 3D 动画的可视化与 2D 动画类似，这里仍对 (x,y) 进行动画展示，
 # 若需要 3D 动画，请采用 mpl_toolkits.mplot3d 进行绘图。
@@ -870,6 +889,146 @@ def save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmp
     plt.close(fig)
     print(f"Localization MP4 animation saved to: {mp4_save_path}")
 
+# --------------------------
+# 在动画中增加房间判断及背景颜色设置，同时记录每帧的房间结果
+def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame_end, rooms, true_room="bedroom", result_txt="room_results.txt"):
+    frames = []
+    # 用于存储每一帧的房间判断结果
+    predicted_rooms = []
+    
+    fig, ax = plt.subplots(figsize=(8.5, 4.5))
+    x_min, x_max = np.min(loc_rdm_pred[:,0]), np.max(loc_rdm_pred[:,0])
+    y_min, y_max = np.min(loc_rdm_pred[:,1]), np.max(loc_rdm_pred[:,1])
+    x_margin = (x_max - x_min) * 0.1 if x_max != x_min else 1
+    y_margin = (y_max - y_min) * 0.1 if y_max != y_min else 1
+
+    ax.set_xlim(x_min - x_margin, x_max + x_margin)
+    ax.set_ylim(y_max + y_margin, y_min - y_margin)  # 注意：大值在上，小值在下
+    yticks = ax.get_yticks()
+    new_labels = np.sort(yticks)
+    ax.set_yticklabels(new_labels)
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+    ax.set_title("Localization Prediction (2D Projection)")
+    
+    for t in range(frame_start, frame_end + 1):
+        ax.cla()
+        ax.set_xlim(x_min - x_margin, x_max + x_margin)
+        ax.set_ylim(y_max + y_margin, y_min - y_margin)
+        yticks = ax.get_yticks()
+        new_labels = np.sort(yticks)
+        ax.set_yticklabels(new_labels)
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        
+        # 获取当前预测坐标
+        current_point = loc_rdm_pred[t, :2]
+        # 判断房间
+        pred_room = get_room_by_rect(current_point[0], current_point[1], rooms)
+        predicted_rooms.append(pred_room)
+        # 判断是否正确（假设正确房间为 true_room，默认为 "bedroom"）
+        if pred_room == true_room:
+            # 正确，背景设为浅绿色
+            ax.set_facecolor("#ccffcc")
+        else:
+            # 错误，背景设为浅红色
+            ax.set_facecolor("#ffcccc")
+        
+        ax.set_title(f"Frame {t}\nPredicted Room: {pred_room} (True: {true_room})")
+        start_frame = t - 20 if t >= 20 else 0
+        traj = loc_rdm_pred[start_frame:t+1, :2]  # 仅取 x,y
+        ax.plot(traj[:, 0], traj[:, 1], linestyle='-', color='blue', alpha=0.7)
+        ax.scatter(traj[:, 0], traj[:, 1], marker='x', color='blue', s=50, alpha=0.7)
+        ax.scatter(current_point[0], current_point[1], marker='o', color='red', s=100, zorder=10)
+        fig.canvas.draw()
+        image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+        image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        frames.append(image)
+    
+    # 保存房间判断结果到 txt 文件
+    with open(result_txt, "w", encoding="utf-8") as f:
+        f.write("frame_idx, predicted_room\n")
+        for idx, room in enumerate(predicted_rooms, start=frame_start):
+            f.write(f"{idx}, {room}\n")
+    print(f"Room judgment results saved to: {result_txt}")
+    
+    plt.close(fig)
+    imageio.mimsave(gif_save_path, frames, fps=10)
+    print(f"Localization GIF animation with room info saved to: {gif_save_path}")
+
+def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room="bedroom", result_txt="room_results.txt"):
+    mpl.rcParams['animation.ffmpeg_path'] = ffmpeg_path
+    x_min, x_max = np.min(loc_rdm_pred[:,0]), np.max(loc_rdm_pred[:,0])
+    y_min, y_max = np.min(loc_rdm_pred[:,1]), np.max(loc_rdm_pred[:,1])
+    x_margin = (x_max - x_min) * 0.1 if x_max != x_min else 1
+    y_margin = (y_max - y_min) * 0.1 if y_max != y_min else 1
+    
+    # 用于存储每一帧的房间判断结果
+    predicted_rooms = []
+    
+    fig, ax = plt.subplots(figsize=(8.5, 4.5))
+    
+    def init():
+        ax.set_xlim(x_min - x_margin, x_max + x_margin)
+        ax.set_ylim(y_max + y_margin, y_min - y_margin)
+        yticks = ax.get_yticks()
+        new_labels = np.sort(yticks)
+        ax.set_yticklabels(new_labels)
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        ax.set_title("Localization Prediction (2D Projection)")
+        return []
+    
+    def update(frame):
+        t = frame
+        ax.cla()
+        ax.set_xlim(x_min - x_margin, x_max + x_margin)
+        ax.set_ylim(y_max + y_margin, y_min - y_margin)
+        yticks = ax.get_yticks()
+        new_labels = np.sort(yticks)
+        ax.set_yticklabels(new_labels)
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        # 获取当前预测坐标
+        current_point = loc_rdm_pred[t, :2]
+        pred_room = get_room_by_rect(current_point[0], current_point[1], rooms)
+        # 保存判断结果
+        predicted_rooms.append(pred_room)
+        # 设置背景色
+        if pred_room == true_room:
+            ax.set_facecolor("#ccffcc")
+        else:
+            ax.set_facecolor("#ffcccc")
+        ax.set_title(f"Frame {t}\nPredicted Room: {pred_room} (True: {true_room})")
+        start_frame = t - 20 if t >= 20 else 0
+        traj = loc_rdm_pred[start_frame:t+1, :2]
+        ax.plot(traj[:, 0], traj[:, 1], linestyle='-', color='blue', alpha=0.7)
+        ax.scatter(traj[:, 0], traj[:, 1], marker='x', color='blue', s=50, alpha=0.7)
+        ax.scatter(current_point[0], current_point[1], marker='o', color='red', s=100, zorder=10)
+        return []
+    
+    frames_range = range(frame_start, frame_end + 1)
+    anim = animation.FuncAnimation(fig, update, frames=frames_range, init_func=init, blit=False)
+    
+    Writer = animation.writers['ffmpeg']
+    writer = Writer(fps=10, metadata=dict(artist='Your Name'), bitrate=1800)
+    anim.save(mp4_save_path, writer=writer)
+    plt.close(fig)
+    
+    # 将 predicted_rooms 写入到文件（注意：由于 FuncAnimation 的update函数是逐帧调用的，
+    # 此处为了存储所有帧的判断结果，需要在每帧 update 中保存，
+    # 或者在动画播放后再次遍历 loc_rdm_pred 进行判断）
+    # 这里我们在更新动画后，重新对整个帧范围进行房间判断：
+    with open(result_txt, "w", encoding="utf-8") as f:
+        f.write("frame_idx, predicted_room\n")
+        for t in frames_range:
+            current_point = loc_rdm_pred[t, :2]
+            room = get_room_by_rect(current_point[0], current_point[1], rooms)
+            f.write(f"{t}, {room}\n")
+    
+    print(f"Localization MP4 animation with room info saved to: {mp4_save_path}")
+    print(f"Room judgment results saved to: {result_txt}")
+
 def plot_node_distance(range_data, node_id):
     """
     绘制指定节点的距离数据折线图。
@@ -882,7 +1041,7 @@ def plot_node_distance(range_data, node_id):
         return
     distances = range_data[node_id]
     frames = np.arange(len(distances))
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(20, 5))
     plt.plot(frames, distances, marker='o', linestyle='-', color='b', label=f'Distance of node {node_id}')
     plt.xlabel("Frame Index")
     plt.ylabel("Distance (m)")
@@ -895,20 +1054,24 @@ def plot_node_distance(range_data, node_id):
 # --------------------------
 # 主函数
 def main():
-    # 配置各项路径与参数
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X\segment\2024-10-27-18-13-39_SB-50274X.txt'
-    nodes_anc = ['2', '15', '16']
+    nodes_anc = ['10', '11', '12']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
         '16':  [8.572,   3.100,  1.405],
-        '15':  [7.745,   1.412,  0.901]
+        '15':  [7.745,   1.412,  0.901],
+        '7':   [1.5, 5.127, 1.232],
+        '8':   [3.764, 5.058, 0.912],
+        '9':   [2.008, 6.6, 1.352],
+        '10':  [4.5, 5.153, 1.444],
+        '11':  [7.733, 7.5, 1.643],
+        '12':  [7.956, 5.028, 0.881]
     }
-    node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14}
+    node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
 
-    # 设置采样时间
-    start_time = datetime(2024, 10, 27, 22, 18, 7, tzinfo=timezone.utc)
-    end_time = datetime(2024, 10, 27, 22, 18, 19, tzinfo=timezone.utc)
+    start_time = datetime(2024, 10, 27, 22, 25, 24, tzinfo=timezone.utc)
+    end_time = datetime(2024, 10, 27, 22, 35, 6, tzinfo=timezone.utc)
     
     # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
@@ -923,17 +1086,53 @@ def main():
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
     
-    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'（请确认该节点的距离数据在 range_data 中存在）
+    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
     # plot_node_distance(range_data, '16')
     
-    # 4) 生成动画：保存 GIF 和 MP4（帧范围示例：150 到 200）
-    gif_save_path = 'localization_animation_21516.gif'
-    mp4_save_path = 'localization_animation_21516.mp4'
-    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为你实际的 FFmpeg 路径
-    
-    # 注意：动画部分仅绘制 (x,y) 坐标的投影
-    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=100, frame_end=200)
-    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=100, frame_end=200, ffmpeg_path=ffmpeg_path)
+    # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
+    # 定义房间边界（这里以矩形为例），单位与预测坐标相同
+    # 例如：假设 true_room 为 bedroom，且房间边界设置如下：
+    # (x_min, x_max, y_min, y_max)
+    rooms = {
+        "bedroom": (4.5, 8.5, 4.563, 7.5),
+        "living": (0, 8.5, 0, 4.563),
+        "bathroom": (1.5, 4.5, 4.563, 6.6)
+    }
+    # 4.1 对每一帧判断房间，并存入列表，同时统计判断正确的帧数
+    predicted_rooms = []
+    correct_count = 0
+    true_room = "bedroom"  # 真值房间
+    for t in range(T):
+        x, y = loc_rdm_pred[t, :2]
+        room = get_room_by_rect(x, y, rooms)
+        predicted_rooms.append(room)
+        if room == true_room:
+            correct_count += 1
 
+    # 计算准确率
+    accuracy = correct_count / T
+
+    # 将房间判断结果保存到 txt 文件
+    room_result_file = "room_results.txt"
+    with open(room_result_file, "w", encoding="utf-8") as f:
+        f.write("frame_idx, predicted_room\n")
+        for idx, room in enumerate(predicted_rooms):
+            f.write(f"{idx}, {room}\n")
+        # 在最后一行追加准确率信息
+        f.write(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})\n")
+    print(f"Room judgment results saved to: {room_result_file}")
+    
+    # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
+    # 这里默认真值为 "bedroom"
+    gif_save_path = 'localization_animation_room.gif'
+    mp4_save_path = 'localization_animation_room.mp4'
+    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
+    
+    # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
+    save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=150, frame_end=200, rooms=rooms, true_room="bedroom", result_txt="room_results_anim.txt")
+    save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start=150, frame_end=200, ffmpeg_path=ffmpeg_path, rooms=rooms, true_room="bedroom", result_txt="room_results_anim.txt")
+
+    print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
+    
 if __name__ == "__main__":
     main()
