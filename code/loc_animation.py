@@ -891,7 +891,7 @@ def save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmp
 
 # --------------------------
 # 在动画中增加房间判断及背景颜色设置，同时记录每帧的房间结果
-def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame_end, rooms, true_room="bedroom", result_txt="room_results.txt"):
+def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame_end, rooms, true_room="living", result_txt="room_results.txt"):
     frames = []
     # 用于存储每一帧的房间判断结果
     predicted_rooms = []
@@ -956,7 +956,7 @@ def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame
     imageio.mimsave(gif_save_path, frames, fps=10)
     print(f"Localization GIF animation with room info saved to: {gif_save_path}")
 
-def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room="bedroom", result_txt="room_results.txt"):
+def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room="living", result_txt="room_results.txt"):
     mpl.rcParams['animation.ffmpeg_path'] = ffmpeg_path
     x_min, x_max = np.min(loc_rdm_pred[:,0]), np.max(loc_rdm_pred[:,0])
     y_min, y_max = np.min(loc_rdm_pred[:,1]), np.max(loc_rdm_pred[:,1])
@@ -1056,7 +1056,7 @@ def plot_node_distance(range_data, node_id):
 def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X\segment\2024-10-27-18-13-39_SB-50274X.txt'
-    nodes_anc = ['10', '11', '12']
+    nodes_anc = ['2', '15', '16']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
         '16':  [8.572,   3.100,  1.405],
@@ -1070,8 +1070,8 @@ def main():
     }
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
 
-    start_time = datetime(2024, 10, 27, 22, 25, 24, tzinfo=timezone.utc)
-    end_time = datetime(2024, 10, 27, 22, 35, 6, tzinfo=timezone.utc)
+    start_time = datetime(2024, 10, 27, 22, 18, 7, tzinfo=timezone.utc)
+    end_time = datetime(2024, 10, 27, 22, 18, 19, tzinfo=timezone.utc)
     
     # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
@@ -1101,7 +1101,7 @@ def main():
     # 4.1 对每一帧判断房间，并存入列表，同时统计判断正确的帧数
     predicted_rooms = []
     correct_count = 0
-    true_room = "bedroom"  # 真值房间
+    true_room = "living"  # 真值房间
     for t in range(T):
         x, y = loc_rdm_pred[t, :2]
         room = get_room_by_rect(x, y, rooms)
@@ -1129,8 +1129,8 @@ def main():
     ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
     
     # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
-    save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=150, frame_end=200, rooms=rooms, true_room="bedroom", result_txt="room_results_anim.txt")
-    save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start=150, frame_end=200, ffmpeg_path=ffmpeg_path, rooms=rooms, true_room="bedroom", result_txt="room_results_anim.txt")
+    save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start=0, frame_end=281, ffmpeg_path=ffmpeg_path, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
 
     print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
     
