@@ -896,8 +896,8 @@ def plot_node_distance(range_data, node_id):
 # 主函数
 def main():
     # 配置各项路径与参数
-    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-46951W'
-    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-46951W\segment\2024-10-27-17-19-37_SB-46951W.txt'
+    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X'
+    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X\segment\2024-10-27-18-13-39_SB-50274X.txt'
     nodes_anc = ['2', '15', '16']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
@@ -907,8 +907,8 @@ def main():
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14}
 
     # 设置采样时间
-    start_time = datetime(2024, 10, 27, 21, 27, 29, tzinfo=timezone.utc)
-    end_time = datetime(2024, 10, 27, 21, 27, 46, tzinfo=timezone.utc)
+    start_time = datetime(2024, 10, 27, 22, 18, 7, tzinfo=timezone.utc)
+    end_time = datetime(2024, 10, 27, 22, 18, 19, tzinfo=timezone.utc)
     
     # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
@@ -924,7 +924,7 @@ def main():
     print(f"3D Localization results saved to: {loc_results_file}")
     
     # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'（请确认该节点的距离数据在 range_data 中存在）
-    # plot_node_distance(range_data, '2')
+    # plot_node_distance(range_data, '16')
     
     # 4) 生成动画：保存 GIF 和 MP4（帧范围示例：150 到 200）
     gif_save_path = 'localization_animation_21516.gif'
@@ -932,8 +932,8 @@ def main():
     ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为你实际的 FFmpeg 路径
     
     # 注意：动画部分仅绘制 (x,y) 坐标的投影
-    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=100, frame_end=300)
-    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=100, frame_end=300, ffmpeg_path=ffmpeg_path)
+    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=100, frame_end=200)
+    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=100, frame_end=200, ffmpeg_path=ffmpeg_path)
 
 if __name__ == "__main__":
     main()
