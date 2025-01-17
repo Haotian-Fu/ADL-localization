@@ -18,7 +18,7 @@ import matplotlib.animation as animation
 import matplotlib as mpl
 mpl.rcParams['animation.ffmpeg_path'] = r'C:\ffmpeg\bin\ffmpeg.exe'  # Update this path if necessary
 
-def load_data(session_path, node_idx, pi_version=3):
+def load_data(session_path, node_idx, pi_version=4):
     """
     load complex data and datetime from raw data files
     """
@@ -667,19 +667,17 @@ def create_localization_animation_single_sc(loc_rdm_pred, timestamps, loc_nod, n
 
 # 示例：计算距离数据，并返回字典 range_data
 def compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=100):
-    # 加载数据（请确保 load_align_resample 已经定义）
     data_complex, dt, st, et = load_align_resample(session_path, list(map(float, nodes_anc)),
                                                      target_fps=target_fps,
                                                      start_time=start_time,
                                                      end_time=end_time)
-    bin_size = 0.05  # 每个 bin 表示米数
-    # 生成距离向量：第 i 个 bin 对应 (i*0.05) 米，从 0.05 到 9.4
+    bin_size = 0.05  # 每个 bin 表示的米数
+    # 生成距离向量：第 i 个 bin 对应 i*0.05 米，从 0.05 到 9.4 米
     distance = np.arange(1, 189) * 0.05
 
     range_data = {}
     for node_id in nodes_anc:
         node_idx = float(node_id)
-        # 计算 features，返回 distance_2d (形状 (T,188)) 和 indices
         distance_2d, index_arr = compute_features_over_time(
             data_complex[node_idx][:, :],
             doppler_bin_num=32,
@@ -688,15 +686,14 @@ def compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps
             Discard_bins=[14, 15, 16, 17]
         )
         # 计算加权平均：每一帧计算 weighted_avg = dot(s, d) / sum(s)
-        weighted_sum = np.dot(distance_2d, distance)           # (T,)
-        weights_sum = np.sum(distance_2d, axis=1)                # (T,)
+        weighted_sum = np.dot(distance_2d, distance)           # shape: (T,)
+        weights_sum = np.sum(distance_2d, axis=1)                # shape: (T,)
         weighted_avg = np.where(weights_sum != 0, weighted_sum / weights_sum, 0)
         range_data[node_id] = weighted_avg   # (T,) 数组
 
         print(f"Computed range_data for node {node_id} with shape {weighted_avg.shape}")
     return range_data
 
-# 保存距离数据到 txt 文件
 def save_range_data_txt(range_data, save_path):
     with open(save_path, "w", encoding="utf-8") as fd:
         fd.write("node_id, frame_idx, distance(m)\n")
@@ -735,27 +732,72 @@ def lse_localization(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc="
     print(f"Localization results saved to: {save_path_loc}")
     return loc_rdm_pred
 
-# 保存 GIF 动画（按照要求：坐标范围固定，y 轴上部数字从小到大显示）
+# --------------------------
+# 3D LSE 定位函数
+def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc="loc_results_3d.txt"):
+    """
+    使用 3D LSE 定位。
+    参数：
+      range_data: 字典，key 为节点编号，value 为 (T,) 的距离数据数组
+      nodes_anc: 需要参与定位的节点编号列表（字符串），
+      loc_nod: 字典，key 为节点编号，value 为对应锚点的 3D 坐标 [x, y, z]
+      offset: 测距数据的偏置（默认为 0.0）
+      save_path_loc: 保存定位结果的文件名
+    返回：
+      loc_rdm_pred: NumPy 数组，形状为 (T, 3)，每一行为 [x, y, z] 的预测坐标
+    """
+    T = range_data[nodes_anc[0]].shape[0]
+    f_loc = open(save_path_loc, "w", encoding="utf-8")
+    f_loc.write("frame_idx, x(m), y(m), z(m)\n")
+    
+    loc_rdm_pred = []
+    print("Starting 3D LSE Localization using nodes:", nodes_anc)
+    for t in tqdm(range(T), desc="3D Localizing"):
+        # 初始化 3D LSE 定位工程
+        P = lx.Project(mode='3D', solver='LSE')
+        # 添加锚点，传入 3D 坐标
+        for nod in nodes_anc:
+            P.add_anchor(nod, loc_nod[nod])
+        # 添加目标：目标节点需要 3D 坐标
+        target, _ = P.add_target()
+        # 输入测距数据（测距数据仍然为标量）
+        for nod in nodes_anc:
+            measure_val = range_data[nod][t] + offset
+            target.add_measure(nod, measure_val)
+        # 求解 3D 定位问题
+        P.solve()
+        # 提取目标的 3D 坐标（假设 target.loc 返回有 x, y, z 属性）
+        loc_current = np.array([target.loc.x, target.loc.y, target.loc.z])
+        # 如果定位结果中 z 维数不合理，可直接设置 z = 1.7；例如：
+        # loc_current[2] = 1.7
+        loc_rdm_pred.append(loc_current)
+        f_loc.write(f"{t}, {loc_current[0]:.4f}, {loc_current[1]:.4f}, {loc_current[2]:.4f}\n")
+    f_loc.close()
+    loc_rdm_pred = np.array(loc_rdm_pred)
+    print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
+    print(f"3D Localization results saved to: {save_path_loc}")
+    return loc_rdm_pred
+
+# 以下函数与之前的2D版本类似，此处不作修改（仅注意 loc_rdm_pred 改为 2D 数据），
+# 3D 动画的可视化与 2D 动画类似，这里仍对 (x,y) 进行动画展示，
+# 若需要 3D 动画，请采用 mpl_toolkits.mplot3d 进行绘图。
+
 def save_animation_gif(loc_rdm_pred, gif_save_path, frame_start, frame_end):
     frames = []
-    # 设置画布和初始坐标轴范围（可用数据计算，也可固定范围）
     fig, ax = plt.subplots(figsize=(8.5, 4.5))
-    x_min, x_max = np.min(loc_rdm_pred[:, 0]), np.max(loc_rdm_pred[:, 0])
-    y_min, y_max = np.min(loc_rdm_pred[:, 1]), np.max(loc_rdm_pred[:, 1])
+    x_min, x_max = np.min(loc_rdm_pred[:,0]), np.max(loc_rdm_pred[:,0])
+    y_min, y_max = np.min(loc_rdm_pred[:,1]), np.max(loc_rdm_pred[:,1])
     x_margin = (x_max - x_min) * 0.1 if x_max != x_min else 1
     y_margin = (y_max - y_min) * 0.1 if y_max != y_min else 1
 
-    # 固定范围：可以按需要修改为 ax.set_xlim(0, 8.5) 等
     ax.set_xlim(x_min - x_margin, x_max + x_margin)
-    # 设置 y 轴上下界：大值在上，小值在下
-    ax.set_ylim(y_max + y_margin, y_min - y_margin)
-    # 重新设置 y 轴刻度：将 tick 值升序排列（从小到大）
+    ax.set_ylim(y_max + y_margin, y_min - y_margin)  # 大值在上，小值在下
     yticks = ax.get_yticks()
     new_labels = np.sort(yticks)
     ax.set_yticklabels(new_labels)
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
-    ax.set_title("Localization Prediction per Time Frame")
+    ax.set_title("Localization Prediction (2D Projection)")
     
     for t in range(frame_start, frame_end + 1):
         ax.cla()
@@ -768,7 +810,7 @@ def save_animation_gif(loc_rdm_pred, gif_save_path, frame_start, frame_end):
         ax.set_ylabel("y (m)")
         ax.set_title(f"Frame {t}")
         start_frame = t - 20 if t >= 20 else 0
-        traj = loc_rdm_pred[start_frame:t+1, :]
+        traj = loc_rdm_pred[start_frame:t+1, :2]  # 仅取 x,y 显示
         ax.plot(traj[:, 0], traj[:, 1], linestyle='-', color='blue', alpha=0.7)
         ax.scatter(traj[:, 0], traj[:, 1], marker='x', color='blue', s=50, alpha=0.7)
         ax.scatter(loc_rdm_pred[t, 0], loc_rdm_pred[t, 1], marker='o', color='red', s=100, zorder=10)
@@ -781,13 +823,10 @@ def save_animation_gif(loc_rdm_pred, gif_save_path, frame_start, frame_end):
     imageio.mimsave(gif_save_path, frames, fps=10)
     print(f"Localization GIF animation saved to: {gif_save_path}")
 
-# 保存 MP4 动画（同样满足要求）
 def save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path):
-    # 配置 FFmpeg 路径
     mpl.rcParams['animation.ffmpeg_path'] = ffmpeg_path
-    # 计算范围
-    x_min, x_max = np.min(loc_rdm_pred[:, 0]), np.max(loc_rdm_pred[:, 0])
-    y_min, y_max = np.min(loc_rdm_pred[:, 1]), np.max(loc_rdm_pred[:, 1])
+    x_min, x_max = np.min(loc_rdm_pred[:,0]), np.max(loc_rdm_pred[:,0])
+    y_min, y_max = np.min(loc_rdm_pred[:,1]), np.max(loc_rdm_pred[:,1])
     x_margin = (x_max - x_min) * 0.1 if x_max != x_min else 1
     y_margin = (y_max - y_min) * 0.1 if y_max != y_min else 1
     
@@ -801,7 +840,7 @@ def save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmp
         ax.set_yticklabels(new_labels)
         ax.set_xlabel("x (m)")
         ax.set_ylabel("y (m)")
-        ax.set_title("Localization Prediction per Time Frame")
+        ax.set_title("Localization Prediction (2D Projection)")
         return []
     
     def update(frame):
@@ -816,7 +855,7 @@ def save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmp
         ax.set_ylabel("y (m)")
         ax.set_title(f"Frame {t}")
         start_frame = t - 20 if t >= 20 else 0
-        traj = loc_rdm_pred[start_frame:t+1, :]
+        traj = loc_rdm_pred[start_frame:t+1, :2]
         ax.plot(traj[:, 0], traj[:, 1], linestyle='-', color='blue', alpha=0.7)
         ax.scatter(traj[:, 0], traj[:, 1], marker='x', color='blue', s=50, alpha=0.7)
         ax.scatter(loc_rdm_pred[t, 0], loc_rdm_pred[t, 1], marker='o', color='red', s=100, zorder=10)
@@ -857,48 +896,44 @@ def plot_node_distance(range_data, node_id):
 # 主函数
 def main():
     # 配置各项路径与参数
-    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
-    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
+    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-46951W'
+    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-46951W\segment\2024-10-27-17-19-37_SB-46951W.txt'
     nodes_anc = ['2', '15', '16']
     loc_nod = {
-        '2':   [0.448,   3.1,  0],
-        '13':  [5.358,   0.774,  0],
-        '6':   [4.363,   4.178,  0],
-        '14':  [5.684,   0.731,  0],
-        '16':  [8.572,   3.088,  0],
-        '15':  [7.777,   1.386,  0]
+        '2':   [0.630,   3.141,  1.439],
+        '16':  [8.572,   3.100,  1.405],
+        '15':  [7.745,   1.412,  0.901]
     }
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14}
-    first_act, last_act = 6, 7
 
     # 设置采样时间
-    start_time = datetime(2023, 6, 29, 20, 52, 34, tzinfo=timezone.utc)
-    end_time = datetime(2023, 6, 29, 20, 52, 46, tzinfo=timezone.utc)
+    start_time = datetime(2024, 10, 27, 21, 27, 29, tzinfo=timezone.utc)
+    end_time = datetime(2024, 10, 27, 21, 27, 46, tzinfo=timezone.utc)
     
     # 1) 计算距离数据
-    range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=100)
+    range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
     T = range_data[nodes_anc[0]].shape[0]
     save_path_distance = "distance_results.txt"
     save_range_data_txt(range_data, save_path_distance)
     
-    # 2) LSE 定位，获得预测的 (x, y) 坐标
-    loc_results_file = "loc_results.txt"
-    loc_rdm_pred = lse_localization(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc=loc_results_file)
+    # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
+    loc_results_file = "loc_results_3d.txt"
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc=loc_results_file)
     
-    # 将 loc_rdm_pred 转换为 NumPy 数组（已在 lse_localization 内转换）并打印信息
-    print("Localization Completed. Results shape:", loc_rdm_pred.shape)
-    print(f"Localization results saved to: {loc_results_file}")
+    print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
+    print(f"3D Localization results saved to: {loc_results_file}")
     
-    # 3) 绘制指定节点的距离数据折线图（例如，节点 '16'）
+    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'（请确认该节点的距离数据在 range_data 中存在）
     # plot_node_distance(range_data, '2')
     
-    # 4) 生成动画：保存 GIF 和 MP4（帧范围示例：150 到 250）
+    # 4) 生成动画：保存 GIF 和 MP4（帧范围示例：150 到 200）
     gif_save_path = 'localization_animation_21516.gif'
     mp4_save_path = 'localization_animation_21516.mp4'
-    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 请修改为你实际的 FFmpeg 路径
+    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为你实际的 FFmpeg 路径
     
-    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=T-1)
-    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=0, frame_end=T-1, ffmpeg_path=ffmpeg_path)
+    # 注意：动画部分仅绘制 (x,y) 坐标的投影
+    save_animation_gif(loc_rdm_pred, gif_save_path, frame_start=100, frame_end=300)
+    save_animation_mp4(loc_rdm_pred, mp4_save_path, frame_start=100, frame_end=300, ffmpeg_path=ffmpeg_path)
 
 if __name__ == "__main__":
     main()
