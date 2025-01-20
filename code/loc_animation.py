@@ -13,6 +13,7 @@ from helper import load_txt_to_datetime, datetime_from_str, color_scale, seg_ind
 from config import nodes_info, nodes_info_pi4, room_info
 import imageio
 import matplotlib.animation as animation
+import random
 
 import warnings
 warnings.filterwarnings("ignore", message="set_ticklabels() should only be used with a fixed number of ticks")
@@ -21,7 +22,7 @@ warnings.filterwarnings("ignore", message="set_ticklabels() should only be used 
 import matplotlib as mpl
 mpl.rcParams['animation.ffmpeg_path'] = r'C:\ffmpeg\bin\ffmpeg.exe'  # Update this path if necessary
 
-def load_data(session_path, node_idx, pi_version=4):
+def load_data(session_path, node_idx, pi_version=3):
     """
     load complex data and datetime from raw data files
     """
@@ -1051,11 +1052,56 @@ def plot_node_distance(range_data, node_id):
     plt.tight_layout()
     plt.show()
 
+def ransac_filter(distances, num_iterations=100, threshold=0.5):
+    """
+    基于RANSAC的简单滤波函数，对一维距离数据进行鲁棒估计，剔除多径等异常值。
+    参数：
+      distances: 1D NumPy 数组，每个元素为单帧的测距值
+      num_iterations: 迭代次数（默认 100）
+      threshold: 误差阈值（单位与距离数据一致），小于该值视为inlier（默认 0.5）
+    返回：
+      filtered: 筛选后的一维 NumPy 数组，其中异常值以估计模型（例如inlier的中值）替换
+    """
+    best_inlier_count = 0
+    best_model = None
+    N = len(distances)
+    for i in range(num_iterations):
+        # 随机选取一个数据点作为候选模型
+        idx = random.randint(0, N - 1)
+        candidate = distances[idx]
+        # 计算所有数据与候选模型之间的误差
+        errors = np.abs(distances - candidate)
+        inliers = errors < threshold
+        count = np.sum(inliers)
+        # 如果当前候选模型有更多 inliers，则记录下中值作为模型
+        if count > best_inlier_count:
+            best_inlier_count = count
+            best_model = np.median(distances[inliers])
+    # 对于每个数据点，如果与 best_model 的误差大于 threshold，则用 best_model 替代
+    filtered = np.where(np.abs(distances - best_model) < threshold, distances, best_model)
+    return filtered
+
+def preprocess_range_data(range_data, threshold=0.5, num_iterations=100):
+    """
+    对字典中每个节点的距离数据使用 RANSAC 进行预处理。
+    参数：
+      range_data: dict, key 为节点编号，value 为一维 NumPy 数组（距离数据）
+      threshold, num_iterations: 传递给 ransac_filter 的参数
+    返回：
+      new_range_data: 字典，与 range_data 键一致，但每个值为滤波后的数据
+    """
+    new_range_data = {}
+    for node_id, distances in range_data.items():
+        filtered = ransac_filter(distances, num_iterations=num_iterations, threshold=threshold)
+        new_range_data[node_id] = filtered
+        print(f"Node {node_id}: Filtered {len(distances)} measurements (threshold={threshold}).")
+    return new_range_data
+
 # --------------------------
 # 主函数
 def main():
-    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X'
-    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\SB-50274X\segment\2024-10-27-18-13-39_SB-50274X.txt'
+    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
+    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
     nodes_anc = ['2', '15', '16']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
@@ -1070,11 +1116,13 @@ def main():
     }
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
 
-    start_time = datetime(2024, 10, 27, 22, 18, 7, tzinfo=timezone.utc)
-    end_time = datetime(2024, 10, 27, 22, 18, 19, tzinfo=timezone.utc)
+    start_time = datetime(2023, 6, 29, 20, 51, 42, tzinfo=timezone.utc)
+    end_time = datetime(2023, 6, 29, 20, 52, 19, tzinfo=timezone.utc)
     
     # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
+    # 重要：在定位前对距离数据进行预处理，剔除多径异常数据
+    # range_data = preprocess_range_data(range_data, threshold=0.5, num_iterations=100)
     T = range_data[nodes_anc[0]].shape[0]
     save_path_distance = "distance_results.txt"
     save_range_data_txt(range_data, save_path_distance)
@@ -1086,8 +1134,10 @@ def main():
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
     
-    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    # plot_node_distance(range_data, '16')
+    # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
+    plot_node_distance(range_data, '2')
+    plot_node_distance(range_data, '15')
+    plot_node_distance(range_data, '16')
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
