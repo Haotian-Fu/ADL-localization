@@ -329,8 +329,8 @@ def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_lo
       loc_rdm_pred: NumPy 数组，形状为 (T, 3)，每一行为 [x, y, z] 的预测坐标
     """
     T = range_data[nodes_anc[0]].shape[0]
-    f_loc = open(save_path_loc, "w", encoding="utf-8")
-    f_loc.write("frame_idx, x(m), y(m), z(m)\n")
+    # f_loc = open(save_path_loc, "w", encoding="utf-8")
+    # f_loc.write("frame_idx, x(m), y(m), z(m)\n")
     
     loc_rdm_pred = []
     print("Starting 3D LSE Localization using nodes:", nodes_anc)
@@ -353,8 +353,8 @@ def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_lo
         # 如果定位结果中 z 维数不合理，可直接设置 z = 1.7；例如：
         # loc_current[2] = 1.7
         loc_rdm_pred.append(loc_current)
-        f_loc.write(f"{t}, {loc_current[0]:.4f}, {loc_current[1]:.4f}, {loc_current[2]:.4f}\n")
-    f_loc.close()
+        # f_loc.write(f"{t}, {loc_current[0]:.4f}, {loc_current[1]:.4f}, {loc_current[2]:.4f}\n")
+    # f_loc.close()
     loc_rdm_pred = np.array(loc_rdm_pred)
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {save_path_loc}")
@@ -505,7 +505,7 @@ def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame
         # 判断房间
         pred_room = get_room_by_rect(current_point[0], current_point[1], rooms)
         predicted_rooms.append(pred_room)
-        # 判断是否正确（假设正确房间为 true_room，默认为 "bedroom"）
+        # 判断是否正确（假设正确房间为 true_room，默认为 "Living Room"）
         if pred_room == true_room:
             # 正确，背景设为浅绿色
             ax.set_facecolor("#ccffcc")
@@ -524,12 +524,12 @@ def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame
         image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
         frames.append(image)
     
-    # 保存房间判断结果到 txt 文件
-    with open(result_txt, "w", encoding="utf-8") as f:
-        f.write("frame_idx, predicted_room\n")
-        for idx, room in enumerate(predicted_rooms, start=frame_start):
-            f.write(f"{idx}, {room}\n")
-    print(f"Room judgment results saved to: {result_txt}")
+    # # 保存房间判断结果到 txt 文件
+    # with open(result_txt, "w", encoding="utf-8") as f:
+    #     f.write("frame_idx, predicted_room\n")
+    #     for idx, room in enumerate(predicted_rooms, start=frame_start):
+    #         f.write(f"{idx}, {room}\n")
+    # print(f"Room judgment results saved to: {result_txt}")
     
     plt.close(fig)
     imageio.mimsave(gif_save_path, frames, fps=10)
@@ -649,7 +649,7 @@ def plot_node_distance(range_data, node_id):
 def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
-    nodes_anc = ['2', '15', '16']
+    nodes_anc = ['10', '11', '12']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
         '16':  [8.572,   3.100,  1.405],
@@ -663,8 +663,15 @@ def main():
     }
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
 
-    start_time = datetime(2023, 6, 29, 20, 51, 42, tzinfo=timezone.utc)
-    end_time = datetime(2023, 6, 29, 20, 52, 19, tzinfo=timezone.utc)
+    # # walk over to the couch
+    # start_time = datetime(2023, 6, 29, 20, 51, 42, tzinfo=timezone.utc)
+    # end_time = datetime(2023, 6, 29, 20, 52, 19, tzinfo=timezone.utc)
+    # # Bathroom
+    # start_time = datetime(2023, 6, 29, 20, 57, 55, tzinfo=timezone.utc)
+    # end_time = datetime(2023, 6, 29, 21, 0, 10, tzinfo=timezone.utc)
+    # Bedroom
+    start_time = datetime(2023, 6, 29, 21, 1, 25, tzinfo=timezone.utc)
+    end_time = datetime(2023, 6, 29, 21, 4, 18, tzinfo=timezone.utc)
     
     # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
@@ -674,15 +681,15 @@ def main():
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
     loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-0.9, save_path_loc=loc_results_file)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1, save_path_loc=loc_results_file)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
     
     # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    plot_node_distance(range_data, '2')
-    plot_node_distance(range_data, '15')
-    plot_node_distance(range_data, '16')
+    plot_node_distance(range_data, '10')
+    plot_node_distance(range_data, '11')
+    plot_node_distance(range_data, '12')
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
@@ -711,15 +718,15 @@ def main():
     # 计算准确率
     accuracy = correct_count / T
 
-    # 将房间判断结果保存到 txt 文件
-    room_result_file = "room_results.txt"
-    with open(room_result_file, "w", encoding="utf-8") as f:
-        f.write("frame_idx, predicted_room\n")
-        for idx, room in enumerate(predicted_rooms):
-            f.write(f"{idx}, {room}\n")
-        # 在最后一行追加准确率信息
-        f.write(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})\n")
-    print(f"Room judgment results saved to: {room_result_file}")
+    # # 将房间判断结果保存到 txt 文件
+    # room_result_file = "room_results.txt"
+    # with open(room_result_file, "w", encoding="utf-8") as f:
+    #     f.write("frame_idx, predicted_room\n")
+    #     for idx, room in enumerate(predicted_rooms):
+    #         f.write(f"{idx}, {room}\n")
+    #     # 在最后一行追加准确率信息
+    #     f.write(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})\n")
+    # print(f"Room judgment results saved to: {room_result_file}")
     
     # # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
     # # 这里默认真值为 "bedroom"
@@ -732,11 +739,11 @@ def main():
     save_animation_mp4_with_room(
         loc_rdm_pred, 
         mp4_save_path="localization_with_rooms.mp4", 
-        frame_start=0, 
-        frame_end=281, 
+        frame_start=200, 
+        frame_end=1000, 
         ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
         rooms=rooms, 
-        true_room="Living Room",
+        true_room="Bedroom",
         result_txt="room_results_anim.txt"
     )
 
