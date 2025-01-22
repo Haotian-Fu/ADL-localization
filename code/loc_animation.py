@@ -247,6 +247,70 @@ def parse_timestamp(ts_str):
 # lx.Project: 定位库对象，需支持 .add_anchor(), .add_target(), .solve(), 以及 target.loc 属性
 # --------------------------
 
+####################################
+# 1. 从.dat 文件中读取距离数据和 sensor id 的函数
+####################################
+def load_distance_data(session, base_dir="data/all_activities"):
+    """
+    读取指定 session 的 .dat 数据文件，并返回距离数据字典和 sensor id 列表。
+    
+    数据文件命名格式："{session}_data.dat"
+    假设数据以 float32 格式存储，总数据元素数量为 T * 16 * 288，
+    重塑后数据 shape 为 (T, 16, 288)。
+    其中前 100 列为 velocity，后 188 列为 distance数据。
+    本函数只提取距离部分（后188列），返回一个字典，其中每个键为 sensor id (例如 "sensor_0")，
+    值为对应 sensor 的距离数据，shape 为 (T, 188)。
+    
+    返回:
+      distance_dict: dict, 每个键为 sensor id，如 "sensor_0", "sensor_1", ..., "sensor_15"
+      sensor_ids: list of str, 包含所有 sensor id
+    """
+    data_file = os.path.join(base_dir, f"{session}_data.dat")
+    try:
+        # 读取所有数据，数据类型为 float32
+        data_memmap = np.memmap(data_file, dtype='float32', mode='r')
+        # 重塑为 (T, 16, 288)
+        T = data_memmap.size // (16 * 288)
+        data_memmap = data_memmap.reshape((T, 16, 288))
+    except Exception as e:
+        print(f"Error reading data from {data_file}: {e}")
+        return None, None
+
+    # 提取距离部分：取每帧每个 sensor 的后 188 列（索引 100:288）
+    distance_data = data_memmap[:, :, 100:]  # shape: (T, 16, 188)
+    
+    # 构造 sensor id 列表，假设 16 个 sensor
+    sensor_ids = [f"{i}" for i in range(16)]
+    distance_dict = {}
+    for i, sensor in enumerate(sensor_ids):
+        # 分离每个 sensor 的数据，shape: (T, 188)
+        distance_dict[sensor] = distance_data[:, i, :]
+        
+    print(f"Session: {session}")
+    print("Loaded data shape (T, 16, 288):", data_memmap.shape)
+    print("Extracted distance data shape (T, 16, 188)")
+    return distance_dict, sensor_ids
+
+####################################
+# 原有后续处理部分（依旧使用 compute_range_data 接口，现改为直接使用读取的距离数据）
+####################################
+# 如果你希望直接使用读取的距离数据进行定位，可以在此处对数据进行处理，例如对 16 个 sensor 取融合（例如均值）得到单通道距离数据。
+def compute_range_data_from_memmap(distance_dict, sensor_ids):
+    """
+    从读取的 distance 数据字典中，对每个 sensor（或选定多个 sensor）的距离数据进行融合（例如取均值），
+    得到一个新的字典 range_data，其键为 sensor id，值为 shape (T,) 的距离估计数据。
+    
+    此处示例中对每个 sensor的数据（shape (T,188)）取每行均值作为单帧距离估计。
+    """
+    range_data = {}
+    for sensor in sensor_ids:
+        # 对每一帧，对 188 个 bin 数据取均值
+        data = distance_dict[sensor]  # shape (T, 188)
+        fused_distance = np.mean(data, axis=1)  # shape: (T,)
+        range_data[sensor] = fused_distance
+        print(f"Computed range data for {sensor} with shape {fused_distance.shape}")
+    return range_data
+
 # 示例：计算距离数据，并返回字典 range_data
 def compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=100):
     data_complex, dt, st, et = load_align_resample(session_path, list(map(float, nodes_anc)),
@@ -649,7 +713,7 @@ def plot_node_distance(range_data, node_id):
 def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
-    nodes_anc = ['10', '11', '12']
+    nodes_anc = ['7', '8', '9']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
         '16':  [8.572,   3.100,  1.405],
@@ -666,30 +730,60 @@ def main():
     # # walk over to the couch
     # start_time = datetime(2023, 6, 29, 20, 51, 42, tzinfo=timezone.utc)
     # end_time = datetime(2023, 6, 29, 20, 52, 19, tzinfo=timezone.utc)
-    # # Bathroom
-    # start_time = datetime(2023, 6, 29, 20, 57, 55, tzinfo=timezone.utc)
-    # end_time = datetime(2023, 6, 29, 21, 0, 10, tzinfo=timezone.utc)
-    # Bedroom
-    start_time = datetime(2023, 6, 29, 21, 1, 25, tzinfo=timezone.utc)
-    end_time = datetime(2023, 6, 29, 21, 4, 18, tzinfo=timezone.utc)
+    # Bathroom
+    start_time = datetime(2023, 6, 29, 20, 57, 56, tzinfo=timezone.utc)
+    end_time = datetime(2023, 6, 29, 21, 0, 10, tzinfo=timezone.utc)
+    # # Bedroom
+    # start_time = datetime(2023, 6, 29, 21, 1, 25, tzinfo=timezone.utc)
+    # end_time = datetime(2023, 6, 29, 21, 4, 18, tzinfo=timezone.utc)
+    
+    
+    # 1) 读取距离数据
+    # 设置会话和路径（请根据实际情况修改）
+    session = "SB-94975U"
+    base_dir = r"data/all_activities"  # 路径需根据你的项目结构调整
+
+    # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
+    distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
+    if distance_dict is None:
+        return
+    # 根据读取到的 sensor 数据构造 range_data
+    # 此处示例对每个 sensor 的数据（shape (T,188)）按每帧取均值作为单帧距离估计
+    range_data = {}
+    for sensor in nodes_anc:
+        data = distance_dict[sensor]  # shape: (T,188)
+        # 对每一帧求均值
+        fused_distance = np.mean(data, axis=1)  # 结果 shape: (T,)
+        range_data[sensor] = fused_distance
+        print(f"Fused range for {sensor} computed, shape: {fused_distance.shape}")
+    
+    # 打印每个 sensor 的前 5 帧距离数据，方便检查
+    for sensor_id, data in range_data.items():
+        print(f"Sensor {sensor_id} distance data, shape: {data.shape}")
+        # 打印前 5 帧（如果数据量足够）
+        print("Max Dist:")
+        print(np.max(data))
+        print("-" * 50)
+
+    input()
     
     # 1) 计算距离数据
-    range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
+    # range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
     T = range_data[nodes_anc[0]].shape[0]
     # save_path_distance = "distance_results.txt"
     # save_range_data_txt(range_data, save_path_distance)
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
     loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1, save_path_loc=loc_results_file)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1.2, save_path_loc=loc_results_file)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
     
     # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    plot_node_distance(range_data, '10')
-    plot_node_distance(range_data, '11')
-    plot_node_distance(range_data, '12')
+    plot_node_distance(range_data, '7')
+    plot_node_distance(range_data, '8')
+    plot_node_distance(range_data, '9')
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
@@ -734,18 +828,18 @@ def main():
     # mp4_save_path = 'localization_animation_room.mp4'
     # ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
     
-    # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
-    # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
-    save_animation_mp4_with_room(
-        loc_rdm_pred, 
-        mp4_save_path="localization_with_rooms.mp4", 
-        frame_start=200, 
-        frame_end=1000, 
-        ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
-        rooms=rooms, 
-        true_room="Bedroom",
-        result_txt="room_results_anim.txt"
-    )
+    # # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
+    # # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    # save_animation_mp4_with_room(
+    #     loc_rdm_pred, 
+    #     mp4_save_path="localization_with_rooms.mp4", 
+    #     frame_start=200, 
+    #     frame_end=1000, 
+    #     ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
+    #     rooms=rooms, 
+    #     true_room="Bedroom",
+    #     result_txt="room_results_anim.txt"
+    # )
 
     print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
     
