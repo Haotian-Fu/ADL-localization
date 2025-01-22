@@ -535,7 +535,7 @@ def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame
     imageio.mimsave(gif_save_path, frames, fps=10)
     print(f"Localization GIF animation with room info saved to: {gif_save_path}")
 
-def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room="living", result_txt="room_results.txt"):
+def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room="Living Room", result_txt="room_results.txt"):
     mpl.rcParams['animation.ffmpeg_path'] = ffmpeg_path
 
     # 动态计算房屋尺寸范围
@@ -544,7 +544,7 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
     y_min = min(room[2] for room in rooms.values())
     y_max = max(room[3] for room in rooms.values())
 
-    # 给可视化增加边界，避免轨迹接近边缘
+    # 适当增加边距，避免轨迹贴近边界
     x_margin = (x_max - x_min) * 0.05
     y_margin = (y_max - y_min) * 0.05
 
@@ -553,10 +553,11 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
     fig, ax = plt.subplots(figsize=(10, 8))
 
     def draw_room_layout(ax):
-        """ 手动绘制房间结构 """
+        """ 绘制房间结构 """
         for room_name, (xmin, xmax, ymin, ymax) in rooms.items():
-            ax.add_patch(patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, 
-                                           fill=False, edgecolor='black', linewidth=2))
+            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, 
+                                     fill=False, edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
             ax.text((xmin + xmax) / 2, (ymin + ymax) / 2, room_name, 
                     fontsize=12, ha='center', va='center')
 
@@ -583,8 +584,13 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
         pred_room = get_room_by_rect(current_point[0], current_point[1], rooms)
         predicted_rooms.append(pred_room)
 
-        # 设置背景色
-        ax.set_facecolor("#ccffcc" if pred_room == true_room else "#ffcccc")
+        # 根据房间判断结果调整背景颜色
+        if pred_room == true_room:
+            ax.set_facecolor("#ccffcc")  # 正确 (绿色)
+        elif pred_room == "Unknown":
+            ax.set_facecolor("#dddddd")  # 未知 (灰色)
+        else:
+            ax.set_facecolor("#ffcccc")  # 错误 (红色)
 
         ax.set_title(f"Frame {frame}\nPredicted Room: {pred_room} (True: {true_room})")
 
@@ -638,51 +644,6 @@ def plot_node_distance(range_data, node_id):
     plt.tight_layout()
     plt.show()
 
-def ransac_filter(distances, num_iterations=100, threshold=0.5):
-    """
-    基于RANSAC的简单滤波函数，对一维距离数据进行鲁棒估计，剔除多径等异常值。
-    参数：
-      distances: 1D NumPy 数组，每个元素为单帧的测距值
-      num_iterations: 迭代次数（默认 100）
-      threshold: 误差阈值（单位与距离数据一致），小于该值视为inlier（默认 0.5）
-    返回：
-      filtered: 筛选后的一维 NumPy 数组，其中异常值以估计模型（例如inlier的中值）替换
-    """
-    best_inlier_count = 0
-    best_model = None
-    N = len(distances)
-    for i in range(num_iterations):
-        # 随机选取一个数据点作为候选模型
-        idx = random.randint(0, N - 1)
-        candidate = distances[idx]
-        # 计算所有数据与候选模型之间的误差
-        errors = np.abs(distances - candidate)
-        inliers = errors < threshold
-        count = np.sum(inliers)
-        # 如果当前候选模型有更多 inliers，则记录下中值作为模型
-        if count > best_inlier_count:
-            best_inlier_count = count
-            best_model = np.median(distances[inliers])
-    # 对于每个数据点，如果与 best_model 的误差大于 threshold，则用 best_model 替代
-    filtered = np.where(np.abs(distances - best_model) < threshold, distances, best_model)
-    return filtered
-
-def preprocess_range_data(range_data, threshold=0.5, num_iterations=100):
-    """
-    对字典中每个节点的距离数据使用 RANSAC 进行预处理。
-    参数：
-      range_data: dict, key 为节点编号，value 为一维 NumPy 数组（距离数据）
-      threshold, num_iterations: 传递给 ransac_filter 的参数
-    返回：
-      new_range_data: 字典，与 range_data 键一致，但每个值为滤波后的数据
-    """
-    new_range_data = {}
-    for node_id, distances in range_data.items():
-        filtered = ransac_filter(distances, num_iterations=num_iterations, threshold=threshold)
-        new_range_data[node_id] = filtered
-        print(f"Node {node_id}: Filtered {len(distances)} measurements (threshold={threshold}).")
-    return new_range_data
-
 # --------------------------
 # 主函数
 def main():
@@ -707,23 +668,21 @@ def main():
     
     # 1) 计算距离数据
     range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
-    # 重要：在定位前对距离数据进行预处理，剔除多径异常数据
-    # range_data = preprocess_range_data(range_data, threshold=0.5, num_iterations=100)
     T = range_data[nodes_anc[0]].shape[0]
-    save_path_distance = "distance_results.txt"
-    save_range_data_txt(range_data, save_path_distance)
+    # save_path_distance = "distance_results.txt"
+    # save_range_data_txt(range_data, save_path_distance)
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
     loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc=loc_results_file)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1, save_path_loc=loc_results_file)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
     
-    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    # plot_node_distance(range_data, '2')
-    # plot_node_distance(range_data, '15')
-    # plot_node_distance(range_data, '16')
+    # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
+    plot_node_distance(range_data, '2')
+    plot_node_distance(range_data, '15')
+    plot_node_distance(range_data, '16')
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
@@ -762,14 +721,14 @@ def main():
         f.write(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})\n")
     print(f"Room judgment results saved to: {room_result_file}")
     
-    # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
-    # 这里默认真值为 "bedroom"
-    gif_save_path = 'localization_animation_room.gif'
-    mp4_save_path = 'localization_animation_room.mp4'
-    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
+    # # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
+    # # 这里默认真值为 "bedroom"
+    # gif_save_path = 'localization_animation_room.gif'
+    # mp4_save_path = 'localization_animation_room.mp4'
+    # ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
     
     # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
-    save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
     save_animation_mp4_with_room(
         loc_rdm_pred, 
         mp4_save_path="localization_with_rooms.mp4", 
@@ -777,7 +736,7 @@ def main():
         frame_end=281, 
         ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
         rooms=rooms, 
-        true_room="living",
+        true_room="Living Room",
         result_txt="room_results_anim.txt"
     )
 
