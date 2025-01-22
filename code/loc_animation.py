@@ -294,21 +294,17 @@ def load_distance_data(session, base_dir="data/all_activities"):
 ####################################
 # 原有后续处理部分（依旧使用 compute_range_data 接口，现改为直接使用读取的距离数据）
 ####################################
-# 如果你希望直接使用读取的距离数据进行定位，可以在此处对数据进行处理，例如对 16 个 sensor 取融合（例如均值）得到单通道距离数据。
 def compute_range_data_from_memmap(distance_dict, sensor_ids):
     """
-    从读取的 distance 数据字典中，对每个 sensor（或选定多个 sensor）的距离数据进行融合（例如取均值），
+    从读取的 distance 数据字典中，读取每个 sensor（或选定多个 sensor）的距离数据，
     得到一个新的字典 range_data，其键为 sensor id，值为 shape (T,) 的距离估计数据。
-    
-    此处示例中对每个 sensor的数据（shape (T,188)）取每行均值作为单帧距离估计。
     """
     range_data = {}
     for sensor in sensor_ids:
         # 对每一帧，对 188 个 bin 数据取均值
         data = distance_dict[sensor]  # shape (T, 188)
-        fused_distance = np.mean(data, axis=1)  # shape: (T,)
-        range_data[sensor] = fused_distance
-        print(f"Computed range data for {sensor} with shape {fused_distance.shape}")
+        range_data[sensor] = data
+        print(f"Computed range data for {sensor} with shape {data.shape}")
     return range_data
 
 # 示例：计算距离数据，并返回字典 range_data
