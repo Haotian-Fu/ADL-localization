@@ -674,7 +674,7 @@ def main():
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
     loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1, save_path_loc=loc_results_file)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-0.9, save_path_loc=loc_results_file)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
