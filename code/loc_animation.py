@@ -280,7 +280,7 @@ def load_distance_data(session, base_dir="data/all_activities"):
     distance_data = data_memmap[:, :, 100:]  # shape: (T, 16, 188)
     
     # 构造 sensor id 列表，假设 16 个 sensor
-    sensor_ids = [f"{i}" for i in range(16)]
+    sensor_ids = [f"{i+1}" for i in range(16)]
     distance_dict = {}
     for i, sensor in enumerate(sensor_ids):
         # 分离每个 sensor 的数据，shape: (T, 188)
@@ -764,7 +764,7 @@ def main():
         print("Max Dist:")
         print(np.max(data))
         print("-" * 50)
-
+    
     input()
     
     # 1) 计算距离数据
