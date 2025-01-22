@@ -3,6 +3,7 @@ import os
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import seaborn as sns
 from collections import deque
 from tqdm import tqdm
@@ -959,53 +960,64 @@ def save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start, frame
 
 def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room="living", result_txt="room_results.txt"):
     mpl.rcParams['animation.ffmpeg_path'] = ffmpeg_path
-    x_min, x_max = np.min(loc_rdm_pred[:,0]), np.max(loc_rdm_pred[:,0])
-    y_min, y_max = np.min(loc_rdm_pred[:,1]), np.max(loc_rdm_pred[:,1])
-    x_margin = (x_max - x_min) * 0.1 if x_max != x_min else 1
-    y_margin = (y_max - y_min) * 0.1 if y_max != y_min else 1
-    
-    # 用于存储每一帧的房间判断结果
+
+    # 动态计算房屋尺寸范围
+    x_min = min(room[0] for room in rooms.values())
+    x_max = max(room[1] for room in rooms.values())
+    y_min = min(room[2] for room in rooms.values())
+    y_max = max(room[3] for room in rooms.values())
+
+    # 给可视化增加边界，避免轨迹接近边缘
+    x_margin = (x_max - x_min) * 0.05
+    y_margin = (y_max - y_min) * 0.05
+
     predicted_rooms = []
     
-    fig, ax = plt.subplots(figsize=(8.5, 4.5))
-    
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    def draw_room_layout(ax):
+        """ 手动绘制房间结构 """
+        for room_name, (xmin, xmax, ymin, ymax) in rooms.items():
+            ax.add_patch(patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, 
+                                           fill=False, edgecolor='black', linewidth=2))
+            ax.text((xmin + xmax) / 2, (ymin + ymax) / 2, room_name, 
+                    fontsize=12, ha='center', va='center')
+
     def init():
+        ax.clear()
+        draw_room_layout(ax)
         ax.set_xlim(x_min - x_margin, x_max + x_margin)
         ax.set_ylim(y_max + y_margin, y_min - y_margin)
-        yticks = ax.get_yticks()
-        new_labels = np.sort(yticks)
-        ax.set_yticklabels(new_labels)
         ax.set_xlabel("x (m)")
         ax.set_ylabel("y (m)")
         ax.set_title("Localization Prediction (2D Projection)")
         return []
-    
+
     def update(frame):
-        t = frame
-        ax.cla()
+        ax.clear()
+        draw_room_layout(ax)
         ax.set_xlim(x_min - x_margin, x_max + x_margin)
         ax.set_ylim(y_max + y_margin, y_min - y_margin)
-        yticks = ax.get_yticks()
-        new_labels = np.sort(yticks)
-        ax.set_yticklabels(new_labels)
         ax.set_xlabel("x (m)")
         ax.set_ylabel("y (m)")
+
         # 获取当前预测坐标
-        current_point = loc_rdm_pred[t, :2]
+        current_point = loc_rdm_pred[frame, :2]
         pred_room = get_room_by_rect(current_point[0], current_point[1], rooms)
-        # 保存判断结果
         predicted_rooms.append(pred_room)
+
         # 设置背景色
-        if pred_room == true_room:
-            ax.set_facecolor("#ccffcc")
-        else:
-            ax.set_facecolor("#ffcccc")
-        ax.set_title(f"Frame {t}\nPredicted Room: {pred_room} (True: {true_room})")
-        start_frame = t - 20 if t >= 20 else 0
-        traj = loc_rdm_pred[start_frame:t+1, :2]
+        ax.set_facecolor("#ccffcc" if pred_room == true_room else "#ffcccc")
+
+        ax.set_title(f"Frame {frame}\nPredicted Room: {pred_room} (True: {true_room})")
+
+        # 轨迹绘制
+        start_frame = max(0, frame - 20)
+        traj = loc_rdm_pred[start_frame:frame+1, :2]
         ax.plot(traj[:, 0], traj[:, 1], linestyle='-', color='blue', alpha=0.7)
         ax.scatter(traj[:, 0], traj[:, 1], marker='x', color='blue', s=50, alpha=0.7)
         ax.scatter(current_point[0], current_point[1], marker='o', color='red', s=100, zorder=10)
+
         return []
     
     frames_range = range(frame_start, frame_end + 1)
@@ -1015,20 +1027,17 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
     writer = Writer(fps=10, metadata=dict(artist='Your Name'), bitrate=1800)
     anim.save(mp4_save_path, writer=writer)
     plt.close(fig)
-    
-    # 将 predicted_rooms 写入到文件（注意：由于 FuncAnimation 的update函数是逐帧调用的，
-    # 此处为了存储所有帧的判断结果，需要在每帧 update 中保存，
-    # 或者在动画播放后再次遍历 loc_rdm_pred 进行判断）
-    # 这里我们在更新动画后，重新对整个帧范围进行房间判断：
+
+    # 保存房间判断结果
     with open(result_txt, "w", encoding="utf-8") as f:
         f.write("frame_idx, predicted_room\n")
-        for t in frames_range:
-            current_point = loc_rdm_pred[t, :2]
-            room = get_room_by_rect(current_point[0], current_point[1], rooms)
+        for t, room in enumerate(predicted_rooms):
             f.write(f"{t}, {room}\n")
-    
+
     print(f"Localization MP4 animation with room info saved to: {mp4_save_path}")
     print(f"Room judgment results saved to: {result_txt}")
+
+
 
 def plot_node_distance(range_data, node_id):
     """
@@ -1134,10 +1143,10 @@ def main():
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     print(f"3D Localization results saved to: {loc_results_file}")
     
-    # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    plot_node_distance(range_data, '2')
-    plot_node_distance(range_data, '15')
-    plot_node_distance(range_data, '16')
+    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
+    # plot_node_distance(range_data, '2')
+    # plot_node_distance(range_data, '15')
+    # plot_node_distance(range_data, '16')
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
@@ -1180,7 +1189,16 @@ def main():
     
     # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
     save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
-    save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start=0, frame_end=281, ffmpeg_path=ffmpeg_path, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    save_animation_mp4_with_room(
+        loc_rdm_pred, 
+        mp4_save_path="localization_with_rooms.mp4", 
+        frame_start=0, 
+        frame_end=281, 
+        ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
+        rooms=rooms, 
+        true_room="living",
+        result_txt="room_results_anim.txt"
+    )
 
     print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
     
