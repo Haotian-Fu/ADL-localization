@@ -23,6 +23,44 @@ warnings.filterwarnings("ignore", message="set_ticklabels() should only be used 
 import matplotlib as mpl
 mpl.rcParams['animation.ffmpeg_path'] = r'C:\ffmpeg\bin\ffmpeg.exe'  # Update this path if necessary
 
+# 定义预定义的动作列表，索引对应标签值
+# 0 表示 'No action'
+action_list = [
+    "No action",  # 0
+    "Walk to kitchen",  # 1
+    "Take plate out from cabinet",  # 2
+    "Take food out from fridge",  # 3
+    "Take cup out of cabinet",  # 4
+    "Take drink out of fridge",  # 5
+    "Pour the drink into the cup",  # 6
+    "Walk to table and eat the food",  # 7
+    "Place the items on the sink",  # 8
+    "Walk over to the couch",  # 9
+    "Read magazine for 30 seconds",  # 10
+    "Walk to the bathroom",  # 11
+    "Shower simulation",  # 12
+    "Brush teeth",  # 13
+    "Wash face",  # 14
+    "Simulate using toilet",  # 15
+    "Walk to kitchen sink",  # 16
+    "Simulate washing dishes",  # 17
+    "Washing hands",  # 18
+    "Walk to the bedroom",  # 19
+    "Hang towel in cabinet",  # 20
+    "Remove shoes",  # 21
+    "Lie down on the bed",  # 22
+    "Get up and take on shoes",  # 23
+    "Watch the video for 30 seconds",  # 24
+    "Enter shower stall",  # 25
+    "Get another towel",  # 26
+    "Fold and place it in the cabinet",  # 27
+    "Get up and stay seated",  # 28
+    "Remove the device and wear your shoes",  # 29
+    "NA",  # 30
+    "NA",  # 31
+    "NA"   # 32
+]
+
 def load_data(session_path, node_idx, pi_version=3):
     """
     load complex data and datetime from raw data files
@@ -247,6 +285,46 @@ def parse_timestamp(ts_str):
 # lx.Project: 定位库对象，需支持 .add_anchor(), .add_target(), .solve(), 以及 target.loc 属性
 # --------------------------
 
+def map_labels_to_actions(label, action_list):
+    """
+    将标签数组映射到动作名称，并记录每个动作对应的帧索引。
+    
+    参数:
+        label (np.ndarray): 标签数组
+        action_list (list): 按索引排列的动作名称列表
+    
+    返回:
+        dict: 动作名称到帧索引的映射字典
+    """
+    label_to_action = {}
+    for idx, action in enumerate(action_list):
+        if action == "NA":
+            continue  # 忽略 'NA' 标签
+        if idx == 0:
+            continue  # 忽略 'No action'
+        frame_indices = np.where(label == idx)[0]
+        if frame_indices.size > 0:
+            label_to_action[action] = frame_indices
+            print(f"动作 '{action}' 对应的帧数量: {frame_indices.size}")
+    return label_to_action
+
+def extract_labeled_data(data, label_to_action):
+    """
+    根据动作名称映射提取对应的数据帧。
+    
+    参数:
+        data (np.ndarray): 数据数组，形状为 (T, 16, 288)
+        label_to_action (dict): 动作名称到帧索引的映射字典
+    
+    返回:
+        dict: 动作名称到对应数据帧的映射字典
+    """
+    action_data = {}
+    for action, frames in label_to_action.items():
+        action_data[action] = data[frames]
+        print(f"提取动作 '{action}' 的数据形状: {action_data[action].shape}")
+    return action_data
+
 ####################################
 # 1. 从.dat 文件中读取距离数据和 sensor id 的函数
 ####################################
@@ -258,11 +336,11 @@ def load_distance_data(session, base_dir="data/all_activities"):
     假设数据以 float32 格式存储，总数据元素数量为 T * 16 * 288，
     重塑后数据 shape 为 (T, 16, 288)。
     其中前 100 列为 velocity，后 188 列为 distance数据。
-    本函数只提取距离部分（后188列），返回一个字典，其中每个键为 sensor id (例如 "sensor_0")，
+    本函数只提取距离部分（后188列），返回一个字典，其中每个键为 sensor id (例如 "1")，
     值为对应 sensor 的距离数据，shape 为 (T, 188)。
     
     返回:
-      distance_dict: dict, 每个键为 sensor id，如 "sensor_0", "sensor_1", ..., "sensor_15"
+      distance_dict: dict, 每个键为 sensor id，如 "1", "2", ..., "16"
       sensor_ids: list of str, 包含所有 sensor id
     """
     data_file = os.path.join(base_dir, f"{session}_data.dat")
@@ -294,17 +372,65 @@ def load_distance_data(session, base_dir="data/all_activities"):
 ####################################
 # 原有后续处理部分（依旧使用 compute_range_data 接口，现改为直接使用读取的距离数据）
 ####################################
-def compute_range_data_from_memmap(distance_dict, sensor_ids):
+def compute_range_data_from_memmap(distance_dict, sensor_ids, action_label, label_to_action):
     """
-    从读取的 distance 数据字典中，读取每个 sensor（或选定多个 sensor）的距离数据，
-    得到一个新的字典 range_data，其键为 sensor id，值为 shape (T,) 的距离估计数据。
+    根据给定的 action_label，在 label_to_action 中找到对应的帧索引，
+    再从 distance_dict 提取这些帧的数据并进行加权平均，最终形成 range_data。
+
+    加权平均公式：
+      weighted_avg = dot(s, d) / sum(s)
+    其中：
+      s 是每帧的距离数据 (188,)
+      d 是距离向量 [0.05, 0.10, ..., 9.40]
+
+    参数：
+      distance_dict: dict
+          key 为 sensor id, value 为 (T, 188) 的 NumPy 数组, T 为总帧数
+      sensor_ids: list of str
+          传感器 id 列表，如 ["7","8","9"]
+      action_label: int (或 str)
+          指定要提取的动作编号 (或名称)
+      label_to_action: dict
+          key 为动作编号(或名称)，value 为一个 np.ndarray，
+          其中存储所有等于该动作编号的帧索引
+
+    返回：
+      range_data: dict
+          key 为 sensor id, value 为 shape (selected_T,) 的加权平均距离，
+          其中 selected_T = 帧索引数量 (该动作对应的帧总数)。
+          若 action_label 不在 label_to_action 中，返回 None
     """
+    # 检查动作是否在字典中
+    if action_label not in label_to_action:
+        print(f"动作 {action_label} 不在 label_to_action 中，可能该动作在本次数据中未出现。")
+        return None
+
+    # 找到该动作对应的所有帧索引
+    frames = label_to_action[action_label]  # shape (N, )
+    N = frames.size
+    print(f"动作 {action_label} 的帧数量: {N}")
+    if N == 0:
+        print("没有帧可以处理。")
+        return None
+
     range_data = {}
+    # 构造距离向量：0.05, 0.10, ..., 9.40
+    distance_vector = np.arange(1, 189) * 0.05
+
+    # 对每个传感器做加权平均
     for sensor in sensor_ids:
-        # 对每一帧，对 188 个 bin 数据取均值
-        data = distance_dict[sensor]  # shape (T, 188)
-        range_data[sensor] = data
-        print(f"Computed range data for {sensor} with shape {data.shape}")
+        # shape (N, 188)
+        data_slice = distance_dict[sensor][frames, :]
+
+        # 计算加权和 & 权重和
+        weighted_sum = np.dot(data_slice, distance_vector)  # shape (N,)
+        weights_sum = np.sum(data_slice, axis=1)           # shape (N,)
+        # 避免除以 0
+        weighted_avg = np.where(weights_sum != 0, weighted_sum / weights_sum, 0)
+
+        range_data[sensor] = weighted_avg
+        print(f"Sensor {sensor} -> shape: {weighted_avg.shape}")
+
     return range_data
 
 # 示例：计算距离数据，并返回字典 range_data
@@ -704,12 +830,33 @@ def plot_node_distance(range_data, node_id):
     plt.tight_layout()
     plt.show()
 
+def load_label(label_file):
+    """
+    读取 label.dat 文件为 int64 类型的数组。
+    
+    参数:
+        label_file (str): label.dat 文件的路径
+    
+    返回:
+        np.ndarray: 标签数组
+    """
+    try:
+        label = np.memmap(label_file, dtype='int64', mode='r')
+        print(f"成功加载标签文件: {label_file}, 标签长度: {label.shape[0]}")
+        return label
+    except FileNotFoundError:
+        print(f"错误: 标签文件未找到: {label_file}")
+        return None
+    except Exception as e:
+        print(f"读取标签文件时出错: {e}")
+        return None
+
 # --------------------------
 # 主函数
 def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
-    nodes_anc = ['7', '8', '9']
+    nodes_anc = ['2', '15', '16']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
         '16':  [8.572,   3.100,  1.405],
@@ -722,36 +869,46 @@ def main():
         '12':  [7.956, 5.028, 0.881]
     }
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
-
-    # # walk over to the couch
-    # start_time = datetime(2023, 6, 29, 20, 51, 42, tzinfo=timezone.utc)
-    # end_time = datetime(2023, 6, 29, 20, 52, 19, tzinfo=timezone.utc)
-    # Bathroom
-    start_time = datetime(2023, 6, 29, 20, 57, 56, tzinfo=timezone.utc)
-    end_time = datetime(2023, 6, 29, 21, 0, 10, tzinfo=timezone.utc)
-    # # Bedroom
-    # start_time = datetime(2023, 6, 29, 21, 1, 25, tzinfo=timezone.utc)
-    # end_time = datetime(2023, 6, 29, 21, 4, 18, tzinfo=timezone.utc)
     
     
     # 1) 读取距离数据
     # 设置会话和路径（请根据实际情况修改）
-    session = "SB-94975U"
+    session = "6e5iYM_ADL_1"
     base_dir = r"data/all_activities"  # 路径需根据你的项目结构调整
 
     # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
     distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
     if distance_dict is None:
         return
+    # 定义文件路径
+    data_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_data.dat"
+    label_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_label.dat"
+    mask_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_mask_mannual.dat"
+    # 读取数据文件
+    data = np.memmap(data_file, dtype='float32', mode='r').reshape(-1, 16, 288)
+    if data is None:
+        print(f"跳过会话 {session} 由于数据文件加载失败。")
+    
+    # 读取标签文件
+    label = np.memmap(label_file, dtype='int64', mode='r')
+    if label is None:
+        print(f"跳过会话 {session} 由于标签文件加载失败。")
+    # 映射标签到动作名称
+    label_to_action = map_labels_to_actions(label, action_list)
+    
+    action_label = "Walk over to the couch"  # 例如动作的名称(或编号)
     # 根据读取到的 sensor 数据构造 range_data
     # 此处示例对每个 sensor 的数据（shape (T,188)）按每帧取均值作为单帧距离估计
-    range_data = {}
-    for sensor in nodes_anc:
-        data = distance_dict[sensor]  # shape: (T,188)
-        # 对每一帧求均值
-        fused_distance = np.mean(data, axis=1)  # 结果 shape: (T,)
-        range_data[sensor] = fused_distance
-        print(f"Fused range for {sensor} computed, shape: {fused_distance.shape}")
+    # 基于 label_to_action, 提取距离数据
+    range_data = compute_range_data_from_memmap(
+        distance_dict=distance_dict,
+        sensor_ids=sensor_ids,
+        action_label=action_label,
+        label_to_action=label_to_action
+    )
+    if range_data is None:
+        print("该动作在标签中不存在。退出。")
+        return
     
     # 打印每个 sensor 的前 5 帧距离数据，方便检查
     for sensor_id, data in range_data.items():
