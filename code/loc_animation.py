@@ -1001,12 +1001,12 @@ def main():
     # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
     save_animation_mp4_with_room(
         loc_rdm_pred, 
-        mp4_save_path="localization_with_rooms.mp4", 
+        mp4_save_path=mp4_save_path, 
         # frame_start=0, 
         # frame_end=label_to_action[action_label].shape[0]-1, 
         frame_start=0,
         frame_end=1000,
-        ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
+        ffmpeg_path=ffmpeg_path,
         rooms=rooms, 
         true_room=true_room,
         result_txt="room_results_anim.txt"
