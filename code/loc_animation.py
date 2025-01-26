@@ -856,7 +856,7 @@ def load_label(label_file):
 def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
-    nodes_anc = ['2', '15', '16']
+    nodes_anc = ['10', '11', '12']
     loc_nod = {
         '2':   [0.630,   3.141,  1.439],
         '16':  [8.572,   3.100,  1.405],
@@ -896,7 +896,7 @@ def main():
     # 映射标签到动作名称
     label_to_action = map_labels_to_actions(label, action_list)
     
-    action_label = "Walk over to the couch"  # 例如动作的名称(或编号)
+    action_label = "Get up and stay seated"  # 例如动作的名称(或编号)
     # 根据读取到的 sensor 数据构造 range_data
     # 此处示例对每个 sensor 的数据（shape (T,188)）按每帧取均值作为单帧距离估计
     # 基于 label_to_action, 提取距离数据
@@ -934,9 +934,9 @@ def main():
     print(f"3D Localization results saved to: {loc_results_file}")
     
     # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    plot_node_distance(range_data, '7')
-    plot_node_distance(range_data, '8')
-    plot_node_distance(range_data, '9')
+    plot_node_distance(range_data, '10')
+    plot_node_distance(range_data, '11')
+    plot_node_distance(range_data, '12')
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
@@ -954,7 +954,7 @@ def main():
     # 4.1 对每一帧判断房间，并存入列表，同时统计判断正确的帧数
     predicted_rooms = []
     correct_count = 0
-    true_room = "Living Room"  # 真值房间
+    true_room = "Bedroom"  # 真值房间
     for t in range(T):
         x, y = loc_rdm_pred[t, :2]
         room = get_room_by_rect(x, y, rooms)
@@ -975,24 +975,24 @@ def main():
     #     f.write(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})\n")
     # print(f"Room judgment results saved to: {room_result_file}")
     
-    # # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
-    # # 这里默认真值为 "bedroom"
-    # gif_save_path = 'localization_animation_room.gif'
-    # mp4_save_path = 'localization_animation_room.mp4'
-    # ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
+    # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
+    # 这里默认真值为 "bedroom"
+    gif_save_path = 'localization_animation_room.gif'
+    mp4_save_path = 'localization_animation_room.mp4'
+    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
     
-    # # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
-    # # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
-    # save_animation_mp4_with_room(
-    #     loc_rdm_pred, 
-    #     mp4_save_path="localization_with_rooms.mp4", 
-    #     frame_start=200, 
-    #     frame_end=1000, 
-    #     ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
-    #     rooms=rooms, 
-    #     true_room="Bedroom",
-    #     result_txt="room_results_anim.txt"
-    # )
+    # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
+    # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    save_animation_mp4_with_room(
+        loc_rdm_pred, 
+        mp4_save_path="localization_with_rooms.mp4", 
+        frame_start=0, 
+        frame_end=13, 
+        ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
+        rooms=rooms, 
+        true_room="Bedroom",
+        result_txt="room_results_anim.txt"
+    )
 
     print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
     
