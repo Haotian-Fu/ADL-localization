@@ -372,7 +372,22 @@ def load_distance_data(session, base_dir="data/all_activities"):
 ####################################
 # 原有后续处理部分（依旧使用 compute_range_data 接口，现改为直接使用读取的距离数据）
 ####################################
-def compute_range_data_from_memmap(distance_dict, sensor_ids, action_label, label_to_action):
+# 如果你希望直接使用读取的距离数据进行定位，可以在此处对数据进行处理，例如对 16 个 sensor 取融合（例如均值）得到单通道距离数据。
+def compute_range_data_from_memmap(distance_dict, sensor_ids):
+    """
+    从读取的 distance 数据字典中，读取每个 sensor（或选定多个 sensor）的距离数据，
+    得到一个新的字典 range_data，其键为 sensor id，值为 shape (T,) 的距离估计数据。
+    """
+    range_data = {}
+    for sensor in sensor_ids:
+        # 对每一帧，对 188 个 bin 数据取均值
+        data = distance_dict[sensor]  # shape (T, 188)
+        range_data[sensor] = data
+        print(f"Computed range data for {sensor} with shape {data.shape}")
+    return range_data
+
+
+def compute_range_data_from_memmap_label(distance_dict, sensor_ids, action_label, label_to_action):
     """
     根据给定的 action_label，在 label_to_action 中找到对应的帧索引，
     再从 distance_dict 提取这些帧的数据并进行加权平均，最终形成 range_data。
@@ -873,7 +888,7 @@ def main():
     
     # 1) 读取距离数据
     # 设置会话和路径（请根据实际情况修改）
-    session = "6e5iYM_ADL_1"
+    session = "SB-94975U"
     base_dir = r"data/all_activities"  # 路径需根据你的项目结构调整
 
     # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
@@ -896,11 +911,12 @@ def main():
     # 映射标签到动作名称
     label_to_action = map_labels_to_actions(label, action_list)
     
-    action_label = "Get up and stay seated"  # 例如动作的名称(或编号)
+    action_label = "Watch the video for 30 seconds"  # 例如动作的名称(或编号)
     # 根据读取到的 sensor 数据构造 range_data
     # 此处示例对每个 sensor 的数据（shape (T,188)）按每帧取均值作为单帧距离估计
     # 基于 label_to_action, 提取距离数据
-    range_data = compute_range_data_from_memmap(
+    
+    range_data = compute_range_data_from_memmap_label(
         distance_dict=distance_dict,
         sensor_ids=sensor_ids,
         action_label=action_label,
@@ -986,11 +1002,13 @@ def main():
     save_animation_mp4_with_room(
         loc_rdm_pred, 
         mp4_save_path="localization_with_rooms.mp4", 
-        frame_start=0, 
-        frame_end=13, 
+        # frame_start=0, 
+        # frame_end=label_to_action[action_label].shape[0]-1, 
+        frame_start=0,
+        frame_end=1000,
         ffmpeg_path=r"C:\ffmpeg\bin\ffmpeg.exe",
         rooms=rooms, 
-        true_room="Bedroom",
+        true_room=true_room,
         result_txt="room_results_anim.txt"
     )
 

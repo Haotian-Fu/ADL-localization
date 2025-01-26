@@ -165,7 +165,7 @@ def main():
         
         # 示例：访问特定动作的数据
         # 例如，访问 "Walk to kitchen" 的数据帧
-        action_label = "Get up and stay seated"
+        action_label = "Walk over to the couch"
         if action_label in action_data:
             print(f"\n===== 动作 '{action_label}' 的数据 =====")
             print(f"动作 '{action_label}' 的数据形状: {action_data[action_label].shape}")
