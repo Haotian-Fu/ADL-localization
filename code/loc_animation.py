@@ -272,47 +272,7 @@ def compute_features_over_time(data_complex, doppler_bin_num=32, step=5, range_b
 
     return distance, indices
 
-def visualize_velocity_distance_samples(session_path, seg_file, node_idx, pi_version=3, doppler_bin_num=32, step=5, discard_bins=[14, 15, 16, 17]):
-# compute and visualize the velocity and distance distribution over time
-    # os.chdir("/home/mengjingliu/ADL_Detection")
 
-    data_complex, dt = load_data(session_path, node_idx, pi_version=pi_version)
-    segs, acts = seg_index(dt, seg_file)
-    distances = []
-    indices = []
-    first_act, last_act = 12, 20
-    for i in range(first_act, last_act):
-        start, end = segs[i]
-        print(acts[i])
-        distance, index = compute_features_over_time(data_complex[start:end, :], doppler_bin_num=doppler_bin_num, step=step, range_bin_num=188, Discard_bins=discard_bins)
-        distances.append(distance)
-        indices.append(index)
-        
-    # distance is a list of 2-d array, with differnet shapes. normalize the values to 0~1
-    print("distance")
-    min_d = min([np.min(distance) for velocity in distances])
-    max_d = max([np.max(distance) for velocity in distances])
-    i = 14
-    for d in distances:
-        # print(acts[i])
-        i += 1
-        d = (d - min_d) / (max_d - min_d)   # normalize the values to 0~1
-        sns.heatmap(d, cmap='viridis', cbar=False, xticklabels=False, yticklabels=False)
-        plt.title(acts[i])
-        plt.show()
-
-def parse_timestamp(ts_str):
-    # Parse a timestamp string into a datetime object.
-    try:
-        datetime_obj = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S.%f')
-    except ValueError:
-        try:
-            datetime_obj = datetime.strptime(ts_str, '%Y-%m-%d %H:%M:%S')
-        except ValueError as e:
-            raise ValueError(f"Timestamp format not recognized: '{ts_str}'") from e
-    return datetime_obj
-
- 
 # --------------------------
 # 需要你根据实际情况导入或定义以下函数和对象：
 # def load_align_resample(session_path, nodes_list, target_fps, start_time, end_time): ...
@@ -652,6 +612,69 @@ def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0):
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     return loc_rdm_pred
 
+def lse_localization_3d_with_mask(range_data, mask, nodes_anc, loc_nod, offset=0.0):
+    """
+    Perform 3D LSE localization but only use sensors indicated by 'mask'.
+    
+    Parameters:
+      range_data: dict
+        { sensor_id: array of shape (T,) }, the distance measurements for each sensor.
+      mask: np.ndarray of shape (T,16)
+        mask[t, i] == 1 => sensor i is valid at frame t; 0 => skip that sensor's measurement
+      nodes_anc: list of str
+        e.g. ["7", "8", "9"], the sensor IDs for anchors used in localization
+      loc_nod: dict
+        { sensor_id: [x, y, z] }, anchor coordinates
+      offset: float
+        optional offset applied to each distance measurement
+    Returns:
+      loc_rdm_pred: np.ndarray of shape (T, 3)
+        predicted (x, y, z) for each frame
+    """
+    # 1) The number of frames is based on one anchor's range_data
+    #    (They should all have the same T)
+    T = range_data[nodes_anc[0]].shape[0]
+    loc_rdm_pred = []
+
+    print("Starting 3D LSE Localization with per-frame mask...")
+
+    # 2) For each time frame t
+    for t in tqdm(range(T), desc="3D Localizing"):
+        # Create a new 3D LSE project
+        P = lx.Project(mode='3D', solver='LSE')
+        
+        # Add anchors with known (x,y,z)
+        for nod in nodes_anc:
+            P.add_anchor(nod, loc_nod[nod])
+        
+        # Add a target
+        target, _ = P.add_target()
+
+        # 3) For each anchor node, check mask.
+        #    Example: If sensor ID "7" => index is int("7") - 1 = 6
+        #    You may need your own mapping from sensor_id to index.
+        for nod in nodes_anc:
+            sensor_idx = int(nod) - 1  # <--- 1-based ID => zero-based index
+            if mask[t, sensor_idx] == 1:
+                # Use this sensor's measurement
+                measure_val = range_data[nod][t] + offset
+                target.add_measure(nod, measure_val)
+            else:
+                # Skip this sensor for this frame
+                pass
+
+        # Solve the localization
+        P.solve()
+
+        # Extract the (x, y, z) from the target
+        loc_current = np.array([target.loc.x, target.loc.y, target.loc.z])
+        loc_rdm_pred.append(loc_current)
+
+    loc_rdm_pred = np.array(loc_rdm_pred)  # shape (T, 3)
+    
+    print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
+    return loc_rdm_pred
+
 # --------------------------
 # 判断被观察者所处房间的函数（这里以矩形边界为例）
 def get_room_by_rect(x, y, rooms):
@@ -986,7 +1009,7 @@ def save_localization_and_rooms(
     
     print(f"Combined localization + room results saved to: {txt_file_path}")
 
-def run(session, true_room):
+def run(session, true_room, mask):
     nodes_anc = sensor_selection[true_room]
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
     # true_room = true_room
@@ -1052,9 +1075,8 @@ def run(session, true_room):
     # save_range_data_txt(range_data, save_path_distance)
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
-    loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=offset)
-    # loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1.2, save_path_loc=loc_results_file)
+    # loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=offset)
+    loc_rdm_pred = lse_localization_3d_with_mask(range_data, mask, nodes_anc, loc_nod, offset=offset)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     
@@ -1120,10 +1142,19 @@ def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
     
-    sessions = ["SB-94975U", "0exwAT_ADL_1", "1eKOIF_ADL_1", "6e5iYM_ADL_1", "8F33UK", "85XB4Y", "eg35Wb_ADL_1",\
-        "I2HSeJ_ADL_1", "NQHEKm_ADL_1", "rjvUbM_ADL_2", "RQAkB1_ADL_1", "SB-00834W", "SB-46951W", "SB-50274X",\
-            "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
-    rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
+    # sessions = ["SB-94975U", "0exwAT_ADL_1", "1eKOIF_ADL_1", "6e5iYM_ADL_1", "8F33UK", "85XB4Y", "eg35Wb_ADL_1",\
+    #     "I2HSeJ_ADL_1", "NQHEKm_ADL_1", "rjvUbM_ADL_2", "RQAkB1_ADL_1", "SB-00834W", "SB-46951W", "SB-50274X",\
+    #         "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
+    # rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
+    
+    sessions = ["SB-94975U"]
+    rooms = ["livingroom"]
+    
+    for session in sessions:
+        for room in rooms:
+            mask_file = f"data/new_dataset/{room}_data/{session}_mask_mannual.dat"
+            mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
+            _, _ = run(session, room, mask)
     
     # for session in sessions:
     #     # For each session, write results to a single text file:
@@ -1169,48 +1200,48 @@ def main():
         
     #     print(f"Session {session}: accuracy details written to {accuracy_file}.\n")
     
-    for room in rooms:
-        # For each session, write results to a single text file:
-        accuracy_file = f"{room}_accuracy.txt"
-        # We'll track total correct frames and total frames across all rooms:
-        room_total_correct = 0
-        room_total_frames  = 0
+    # for room in rooms:
+    #     # For each session, write results to a single text file:
+    #     accuracy_file = f"{room}_accuracy.txt"
+    #     # We'll track total correct frames and total frames across all rooms:
+    #     room_total_correct = 0
+    #     room_total_frames  = 0
         
-        with open(accuracy_file, "w", encoding="utf-8") as f:
-            # Process each room
-            for session in sessions:
-                # run(...) pipeline returns (room_correct_count, room_total_frames) or None
-                session_correct_count, session_total_frames = run(session, room)  
+    #     with open(accuracy_file, "w", encoding="utf-8") as f:
+    #         # Process each room
+    #         for session in sessions:
+    #             # run(...) pipeline returns (room_correct_count, room_total_frames) or None
+    #             session_correct_count, session_total_frames = run(session, room)  
                 
-                if session_correct_count is None or session_total_frames is None:
-                    # Could not process this room, write "N/A"
-                    f.write(f"{room}, N/A\n")
-                    continue
+    #             if session_correct_count is None or session_total_frames is None:
+    #                 # Could not process this room, write "N/A"
+    #                 f.write(f"{room}, N/A\n")
+    #                 continue
 
-                # Compute room accuracy (if total frames > 0)
-                session_accuracy_float = (session_correct_count / session_total_frames
-                                       if session_total_frames > 0 else 0.0)
-                session_accuracy_percent = 100.0 * session_accuracy_float
+    #             # Compute room accuracy (if total frames > 0)
+    #             session_accuracy_float = (session_correct_count / session_total_frames
+    #                                    if session_total_frames > 0 else 0.0)
+    #             session_accuracy_percent = 100.0 * session_accuracy_float
                 
-                # Accumulate for session totals
-                room_total_correct += session_correct_count
-                room_total_frames  += session_total_frames
+    #             # Accumulate for session totals
+    #             room_total_correct += session_correct_count
+    #             room_total_frames  += session_total_frames
                 
-                # Write line for this session
-                f.write(f"{session}, {session_accuracy_percent:.2f}% "
-                        f"({session_correct_count} / {session_total_frames})\n")
+    #             # Write line for this session
+    #             f.write(f"{session}, {session_accuracy_percent:.2f}% "
+    #                     f"({session_correct_count} / {session_total_frames})\n")
 
-            # After all rooms in this session
-            if room_total_frames > 0:
-                room_accuracy_float = room_total_correct / room_total_frames
-                room_accuracy_percent = 100.0 * room_accuracy_float
-                # Write final line
-                f.write(f"ROOM_AVERAGE: {room_accuracy_percent:.2f}% "
-                        f"({room_total_correct} / {room_total_frames})\n")
-            else:
-                f.write("ROOM_AVERAGE: N/A\n")
+    #         # After all rooms in this session
+    #         if room_total_frames > 0:
+    #             room_accuracy_float = room_total_correct / room_total_frames
+    #             room_accuracy_percent = 100.0 * room_accuracy_float
+    #             # Write final line
+    #             f.write(f"ROOM_AVERAGE: {room_accuracy_percent:.2f}% "
+    #                     f"({room_total_correct} / {room_total_frames})\n")
+    #         else:
+    #             f.write("ROOM_AVERAGE: N/A\n")
         
-        print(f"Room {room}: accuracy details written to {accuracy_file}.\n")
+    #     print(f"Room {room}: accuracy details written to {accuracy_file}.\n")
     
 if __name__ == "__main__":
     main()

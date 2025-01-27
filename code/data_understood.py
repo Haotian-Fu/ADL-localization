@@ -176,7 +176,7 @@ def main():
 
     # 定义所有会话的列表
     sessions = [
-        "6e5iYM_ADL_1"
+        "SB-94975U"
         # 在这里添加更多的 session 名称
     ]
 
@@ -191,80 +191,91 @@ def main():
         # data_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_data.dat"
         # label_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_label.dat"
         # mask_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_mask_mannual.dat"
-        data_file = f"data/new_dataset/bedroom_data/{session}_data.dat"
-        label_file = f"data/new_dataset/bedroom_data/{session}_label.dat"
-        mask_file = f"data/new_dataset/bedroom_data/{session}_mask_mannual.dat"
+        data_file = f"data/new_dataset/livingroom_data/{session}_data.dat"
+        # label_file = f"data/new_dataset/bedroom_data/{session}_label.dat"
+        mask_file = f"data/new_dataset/livingroom_data/{session}_mask_mannual.dat"
+        
+        data = np.memmap(f"{data_file}", dtype='float32', mode='r').reshape(16, -1, 220)
+        mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
+        
+        print(data.shape)
+        print(mask.shape)
+        print(mask)
+        # # Convert mask to list and print
+        # mask_list = mask.tolist()
+        # print(mask_list)
+        
 
-        # 读取数据文件
-        data = load_data(data_file)
-        if data is None:
-            print(f"跳过会话 {session} 由于数据文件加载失败。")
-            continue
+        # # 读取数据文件
+        # data = load_data(data_file)
+        # if data is None:
+        #     print(f"跳过会话 {session} 由于数据文件加载失败。")
+        #     continue
 
-        # 读取标签文件
-        label = load_label(label_file)
-        if label is None:
-            print(f"跳过会话 {session} 由于标签文件加载失败。")
-            continue
+        # # 读取标签文件
+        # label = load_label(label_file)
+        # if label is None:
+        #     print(f"跳过会话 {session} 由于标签文件加载失败。")
+        #     continue
 
-        # 打印标签数组的基本信息
-        print(f"标签数组长度: {label.shape[0]}")
+        # # 打印标签数组的基本信息
+        # print(f"标签数组长度: {label.shape[0]}")
 
-        # 显示部分标签数据作为示例
-        print("标签数组示例 (前100帧):")
-        print(label[:100])
-        print("...")
+        # # 显示部分标签数据作为示例
+        # print("标签数组示例 (前100帧):")
+        # print(label[:100])
+        # print("...")
 
-        # 映射标签到动作名称
-        label_to_action = map_labels_to_actions(label, action_list)
+        # # 映射标签到动作名称
+        # label_to_action = map_labels_to_actions(label, action_list)
 
-        # 检查是否有有效的动作
-        if not label_to_action:
-            print(f"会话 {session} 中没有有效的动作标签。")
-            continue
+        # # 检查是否有有效的动作
+        # if not label_to_action:
+        #     print(f"会话 {session} 中没有有效的动作标签。")
+        #     continue
 
-        # 创建 distance_dict
-        distance_dict = create_distance_dict(data, sensor_ids, num_bins=188)
+        # # 创建 distance_dict
+        # distance_dict = create_distance_dict(data, sensor_ids, num_bins=188)
 
-        # 示例：选择一个动作并提取对应的 range_data
-        # 你可以根据需要循环处理所有动作或特定动作
-        # 这里以 "Walk to kitchen" 为例
-        action_label = "Walk to kitchen"
-        if action_label in label_to_action:
-            frames = label_to_action[action_label]
-            print(f"动作 '{action_label}' 对应的帧索引数量: {frames.size}")
+        # # 示例：选择一个动作并提取对应的 range_data
+        # # 你可以根据需要循环处理所有动作或特定动作
+        # # 这里以 "Walk to kitchen" 为例
+        # action_label = "Walk to kitchen"
+        # if action_label in label_to_action:
+        #     frames = label_to_action[action_label]
+        #     print(f"动作 '{action_label}' 对应的帧索引数量: {frames.size}")
 
-            # 计算动作的开始时间和结束时间
-            # 假设数据的起始时间为某个已知时间，例如：
-            data_start_time = datetime(2023, 6, 29, 16, 54, 23, tzinfo=timezone.utc)
-            # 获取动作的最早和最晚帧
-            frame_start = frames.min()
-            frame_end = frames.max()
-            action_start_time = data_start_time + timedelta(seconds=frame_start / 120)
-            action_end_time = data_start_time + timedelta(seconds=frame_end / 120)
-            print(f"动作 '{action_label}' 开始时间: {action_start_time}")
-            print(f"动作 '{action_label}' 结束时间: {action_end_time}")
+        #     # 计算动作的开始时间和结束时间
+        #     # 假设数据的起始时间为某个已知时间，例如：
+        #     data_start_time = datetime(2023, 6, 29, 16, 54, 23, tzinfo=timezone.utc)
+        #     # 获取动作的最早和最晚帧
+        #     frame_start = frames.min()
+        #     frame_end = frames.max()
+        #     action_start_time = data_start_time + timedelta(seconds=frame_start / 120)
+        #     action_end_time = data_start_time + timedelta(seconds=frame_end / 120)
+        #     print(f"动作 '{action_label}' 开始时间: {action_start_time}")
+        #     print(f"动作 '{action_label}' 结束时间: {action_end_time}")
 
-            # 调用 compute_range_data_from_memmap
-            range_data = compute_range_data_from_memmap(
-                distance_dict=distance_dict,
-                sensor_ids=sensor_ids,
-                data_start_time=data_start_time,
-                start_time=action_start_time,
-                end_time=action_end_time,
-                target_fps=120
-            )
+        #     # 调用 compute_range_data_from_memmap
+        #     range_data = compute_range_data_from_memmap(
+        #         distance_dict=distance_dict,
+        #         sensor_ids=sensor_ids,
+        #         data_start_time=data_start_time,
+        #         start_time=action_start_time,
+        #         end_time=action_end_time,
+        #         target_fps=120
+        #     )
 
-            # 打印 range_data 内容
-            print("\n----- range_data 内容 -----")
-            for sensor_id, distances in range_data.items():
-                print(f"传感器 {sensor_id} 的加权平均距离，形状: {distances.shape}")
-                print(f"传感器 {sensor_id} 的前5帧距离数据:")
-                print(distances[:5])
-                print("-" * 50)
-            print("----- end of range_data -----\n")
-        else:
-            print(f"动作标签 '{action_label}' 不存在于标签字典中。")
+        #     # 打印 range_data 内容
+        #     print("\n----- range_data 内容 -----")
+        #     for sensor_id, distances in range_data.items():
+        #         print(f"传感器 {sensor_id} 的加权平均距离，形状: {distances.shape}")
+        #         print(f"传感器 {sensor_id} 的前5帧距离数据:")
+        #         print(distances[:5])
+        #         print("-" * 50)
+        #     print("----- end of range_data -----\n")
+        # else:
+        #     print(f"动作标签 '{action_label}' 不存在于标签字典中。")
 
         print(f"===== 完成会话: {session} =====\n")
 
