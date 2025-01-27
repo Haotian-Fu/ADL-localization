@@ -1117,7 +1117,9 @@ def main():
     session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
     seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
     
-    sessions = ["SB-94975U"]
+    sessions = ["SB-94975U", "0exwAT_ADL_1", "1eKOIF_ADL_1", "6e5iYM_ADL_1", "8F33UK", "85XB4Y", "eg35Wb_ADL_1",\
+        "I2HSel_ADL_1", "NQHEKm_ADL_1", "rjvUbM_ADL_2", "RQAkB1_ADL_1", "SB-00834W", "SB-46951W", "SB-50274X",\
+            "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
     rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
     
     for session in sessions:
