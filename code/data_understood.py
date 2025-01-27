@@ -188,9 +188,12 @@ def main():
         print(f"\n===== 处理会话: {session} =====")
 
         # 定义文件路径
-        data_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_data.dat"
-        label_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_label.dat"
-        mask_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_mask_mannual.dat"
+        # data_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_data.dat"
+        # label_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_label.dat"
+        # mask_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_mask_mannual.dat"
+        data_file = f"data/new_dataset/bedroom_data/{session}_data.dat"
+        label_file = f"data/new_dataset/bedroom_data/{session}_label.dat"
+        mask_file = f"data/new_dataset/bedroom_data/{session}_mask_mannual.dat"
 
         # 读取数据文件
         data = load_data(data_file)

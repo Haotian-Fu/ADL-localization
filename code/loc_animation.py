@@ -369,6 +369,57 @@ def load_distance_data(session, base_dir="data/all_activities"):
     print("Extracted distance data shape (T, 16, 188)")
     return distance_dict, sensor_ids
 
+def load_distance_data_new(session, base_dir="data/new_dataset/all_activities"):
+    """
+    读取指定 session 的 .dat 数据文件，并返回距离数据字典和 sensor id 列表。
+    
+    本版本假设原始数据形状为 (16, T, 220)：
+      - 16: 传感器个数
+      - T: 时间帧数
+      - 220: 特征列数（其中后188列是距离）
+    仅提取后188列作为距离数据 -> shape (16, T, 188)
+
+    返回:
+      distance_dict: dict, 
+        键为传感器 id (string, e.g. "1"),
+        值为 (T, 188) 的数组(第一个维度是时间帧数).
+      sensor_ids: list of str, 包含所有 sensor id, e.g. ["1","2",...,"16"]
+    """
+    data_file = os.path.join(base_dir, f"{session}_data.dat")
+    try:
+        # 读取所有 float32 数据
+        data_memmap = np.memmap(data_file, dtype='float32', mode='r')
+        # 计算 T, 给定前两维是 16(传感器)和 220(特征列)
+        #   => data_memmap.size = 16 * T * 220
+        #   => T = data_memmap.size // (16 * 220)
+        T = data_memmap.size // (16 * 220)
+
+        # 重塑为 (16, T, 220)
+        data_memmap = data_memmap.reshape((16, T, 220))
+
+    except Exception as e:
+        print(f"Error reading data from {data_file}: {e}")
+        return None, None
+
+    # 提取距离部分: 对最后 188 列 (索引 [32:220])
+    # 结果形状 => (16, T, 188)
+    distance_data = data_memmap[:, :, 32:]
+
+    # 传感器 ID 列表 (16 个传感器)
+    sensor_ids = [f"{i+1}" for i in range(16)]
+
+    # 构造 distance_dict: 对应 (T,188) for each sensor
+    distance_dict = {}
+    for i, sensor in enumerate(sensor_ids):
+        # distance_data[i, :, :] => shape: (T, 188)
+        distance_dict[sensor] = distance_data[i, :, :]
+
+    print(f"Session: {session}")
+    print("Loaded data shape (16, T, 220):", data_memmap.shape)
+    print("Extracted distance data shape (T, 188) per sensor")
+    return distance_dict, sensor_ids
+
+
 ####################################
 # 原有后续处理部分（依旧使用 compute_range_data 接口，现改为直接使用读取的距离数据）
 ####################################
@@ -897,17 +948,17 @@ def main():
         '12':  [7.956, 5.028, 0.881],
         '13':  [5.365, 0.787, 0.892]
     }
-    nodes_anc = ['7', '8', '9']
+    nodes_anc = ['2', '5', '13']
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
     
     # 1) 读取距离数据
     # 设置会话和路径（请根据实际情况修改）
-    session = "SB-94975U"
-    base_dir = r"data/bathroom_data"  # 路径需根据你的项目结构调整
-    true_room = "Bathroom"  # 真值房间
-
+    session = "SB-46951W"
+    base_dir = r"data\new_dataset\kitchen_data"  # 路径需根据你的项目结构调整
+    true_room = "Kitchen"
     # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
-    distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
+    distance_dict, sensor_ids = load_distance_data_new(session, base_dir=base_dir)
+    # distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
     if distance_dict is None:
         return
     # # 定义文件路径
@@ -944,15 +995,15 @@ def main():
         print("该动作在标签中不存在。退出。")
         return
     
-    # 打印每个 sensor 的前 5 帧距离数据，方便检查
-    for sensor_id, data in range_data.items():
-        print(f"Sensor {sensor_id} distance data, shape: {data.shape}")
-        # 打印前 5 帧（如果数据量足够）
-        print("Max Dist:")
-        print(np.max(data))
-        print("-" * 50)
+    # # 打印每个 sensor 的前 5 帧距离数据，方便检查
+    # for sensor_id, data in range_data.items():
+    #     print(f"Sensor {sensor_id} distance data, shape: {data.shape}")
+    #     # 打印前 5 帧（如果数据量足够）
+    #     print("Max Dist:")
+    #     print(np.max(data))
+    #     print("-" * 50)
     
-    input()
+    # input()
     
     # 1) 计算距离数据
     # range_data = compute_range_data(session_path, nodes_anc, start_time, end_time, target_fps=120)
@@ -962,7 +1013,7 @@ def main():
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
     loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-0.56, save_path_loc=loc_results_file)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1.5, save_path_loc=loc_results_file)
     # loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1.2, save_path_loc=loc_results_file)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
