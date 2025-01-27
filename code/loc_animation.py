@@ -580,7 +580,7 @@ def lse_localization(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc="
 
 # --------------------------
 # 3D LSE 定位函数
-def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_loc="loc_results_3d.txt"):
+def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0):
     """
     使用 3D LSE 定位。
     参数：
@@ -593,35 +593,28 @@ def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0, save_path_lo
       loc_rdm_pred: NumPy 数组，形状为 (T, 3)，每一行为 [x, y, z] 的预测坐标
     """
     T = range_data[nodes_anc[0]].shape[0]
-    # f_loc = open(save_path_loc, "w", encoding="utf-8")
-    # f_loc.write("frame_idx, x(m), y(m), z(m)\n")
-    
     loc_rdm_pred = []
     print("Starting 3D LSE Localization using nodes:", nodes_anc)
+
     for t in tqdm(range(T), desc="3D Localizing"):
-        # 初始化 3D LSE 定位工程
         P = lx.Project(mode='3D', solver='LSE')
-        # 添加锚点，传入 3D 坐标
+        # Add anchors
         for nod in nodes_anc:
             P.add_anchor(nod, loc_nod[nod])
-        # 添加目标：目标节点需要 3D 坐标
+        # Add target
         target, _ = P.add_target()
-        # 输入测距数据（测距数据仍然为标量）
+        # Add measurements
         for nod in nodes_anc:
             measure_val = range_data[nod][t] + offset
             target.add_measure(nod, measure_val)
-        # 求解 3D 定位问题
+        # Solve
         P.solve()
-        # 提取目标的 3D 坐标（假设 target.loc 返回有 x, y, z 属性）
+        # Extract (x,y,z)
         loc_current = np.array([target.loc.x, target.loc.y, target.loc.z])
-        # 如果定位结果中 z 维数不合理，可直接设置 z = 1.7；例如：
-        # loc_current[2] = 1.7
         loc_rdm_pred.append(loc_current)
-        # f_loc.write(f"{t}, {loc_current[0]:.4f}, {loc_current[1]:.4f}, {loc_current[2]:.4f}\n")
-    # f_loc.close()
+
     loc_rdm_pred = np.array(loc_rdm_pred)
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
-    print(f"3D Localization results saved to: {save_path_loc}")
     return loc_rdm_pred
 
 # --------------------------
@@ -929,6 +922,34 @@ def load_label(label_file):
         print(f"读取标签文件时出错: {e}")
         return None
 
+def save_localization_and_rooms(
+    txt_file_path,
+    loc_rdm_pred,
+    predicted_rooms,
+    accuracy,
+    correct_count
+):
+    """
+    Write frame_idx, (x, y, z), and predicted room
+    to a single text file, plus final accuracy line.
+    """
+    T = loc_rdm_pred.shape[0]
+    with open(txt_file_path, "w", encoding="utf-8") as f:
+        # Header
+        f.write("frame_idx, x(m), y(m), z(m), predicted_room\n")
+        
+        # Per-frame lines
+        for idx in range(T):
+            x_val, y_val, z_val = loc_rdm_pred[idx]
+            room = predicted_rooms[idx]
+            f.write(f"{idx}, {x_val:.4f}, {y_val:.4f}, {z_val:.4f}, {room}\n")
+        
+        # At the end: accuracy
+        f.write(f"Accuracy: {accuracy*100:.2f}% "
+                f"({correct_count} correct frames out of {T})\n")
+    
+    print(f"Combined localization + room results saved to: {txt_file_path}")
+
 # --------------------------
 # 主函数
 def main():
@@ -953,22 +974,23 @@ def main():
     
     # 1) 读取距离数据
     # 设置会话和路径（请根据实际情况修改）
-    session = "SB-46951W"
+    session = "SB-94975U"
     base_dir = r"data\new_dataset\kitchen_data"  # 路径需根据你的项目结构调整
     true_room = "Kitchen"
+    offset = -1.5
     # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
     distance_dict, sensor_ids = load_distance_data_new(session, base_dir=base_dir)
     # distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
     if distance_dict is None:
         return
     # # 定义文件路径
-    # data_file = f"D:/OneDrive/桌面/code/ADL_localization/data/bedroom_data/{session}_data.dat"
-    # # label_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_label.dat"
+    # data_file = f"data/new_dataset/kitchen_data/{session}_data.dat"
+    # label_file = f"data/new_dataset/kitchen_data/{session}_label.dat"
     # # mask_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_mask_mannual.dat"
-    # # 读取数据文件
-    # data = np.memmap(data_file, dtype='float32', mode='r').reshape(-1, 16, 288)
-    # if data is None:
-    #     print(f"跳过会话 {session} 由于数据文件加载失败。")
+    # # # 读取数据文件
+    # # data = np.memmap(data_file, dtype='float32', mode='r').reshape(-1, 16, 288)
+    # # if data is None:
+    # #     print(f"跳过会话 {session} 由于数据文件加载失败。")
     
     # # 读取标签文件
     # label = np.memmap(label_file, dtype='int64', mode='r')
@@ -1013,16 +1035,15 @@ def main():
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
     loc_results_file = "loc_results_3d.txt"
-    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1.5, save_path_loc=loc_results_file)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=offset)
     # loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=-1.2, save_path_loc=loc_results_file)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
-    print(f"3D Localization results saved to: {loc_results_file}")
     
-    # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
-    plot_node_distance(range_data, nodes_anc[0])
-    plot_node_distance(range_data, nodes_anc[1])
-    plot_node_distance(range_data, nodes_anc[2])
+    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
+    # plot_node_distance(range_data, nodes_anc[0])
+    # plot_node_distance(range_data, nodes_anc[1])
+    # plot_node_distance(range_data, nodes_anc[2])
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
     # 定义房间边界（这里以矩形为例），单位与预测坐标相同
@@ -1050,35 +1071,36 @@ def main():
     # 计算准确率
     accuracy = correct_count / T
 
-    # # 将房间判断结果保存到 txt 文件
-    # room_result_file = "room_results.txt"
-    # with open(room_result_file, "w", encoding="utf-8") as f:
-    #     f.write("frame_idx, predicted_room\n")
-    #     for idx, room in enumerate(predicted_rooms):
-    #         f.write(f"{idx}, {room}\n")
-    #     # 在最后一行追加准确率信息
-    #     f.write(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})\n")
-    # print(f"Room judgment results saved to: {room_result_file}")
-    
-    # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
-    # 这里默认真值为 "bedroom"
-    gif_save_path = 'localization_animation_room.gif'
-    mp4_save_path = 'localization_animation_room.mp4'
-    ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
-    
-    # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
-    # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
-    save_animation_mp4_with_room(
-        loc_rdm_pred, 
-        mp4_save_path=mp4_save_path, 
-        frame_start=0, 
-        # frame_end=label_to_action[action_label].shape[0]-1, 
-        frame_end=range_data[nodes_anc[0]].shape[0]-1,
-        ffmpeg_path=ffmpeg_path,
-        rooms=rooms, 
-        true_room=true_room,
-        result_txt="room_results_anim.txt"
+    # 将房间判断结果保存到 txt 文件
+    room_result_file = f"{session}_{true_room}_sensor{nodes_anc}_offset{offset}_room_results.txt"
+    save_localization_and_rooms(
+        room_result_file,
+        loc_rdm_pred,
+        predicted_rooms,
+        accuracy,
+        correct_count
     )
+    print(f"Room judgment results saved to: {room_result_file}")
+    
+    # # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
+    # # 这里默认真值为 "bedroom"
+    # gif_save_path = 'localization_animation_room.gif'
+    # mp4_save_path = 'localization_animation_room.mp4'
+    # ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
+    
+    # # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
+    # # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    # save_animation_mp4_with_room(
+    #     loc_rdm_pred, 
+    #     mp4_save_path=mp4_save_path, 
+    #     frame_start=0, 
+    #     # frame_end=label_to_action[action_label].shape[0]-1, 
+    #     frame_end=range_data[nodes_anc[0]].shape[0]-1,
+    #     ffmpeg_path=ffmpeg_path,
+    #     rooms=rooms, 
+    #     true_room=true_room,
+    #     result_txt="room_results_anim.txt"
+    # )
 
     print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
     
