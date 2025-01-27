@@ -1125,50 +1125,92 @@ def main():
             "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
     rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
     
-    for session in sessions:
-        # For each session, write results to a single text file:
-        accuracy_file = f"{session}_accuracy.txt"
+    # for session in sessions:
+    #     # For each session, write results to a single text file:
+    #     accuracy_file = f"{session}_accuracy.txt"
         
+    #     # We'll track total correct frames and total frames across all rooms:
+    #     session_total_correct = 0
+    #     session_total_frames  = 0
+        
+    #     with open(accuracy_file, "w", encoding="utf-8") as f:
+    #         # Process each room
+    #         for room in rooms:
+    #             # run(...) pipeline returns (room_correct_count, room_total_frames) or None
+    #             room_correct_count, room_total_frames = run(session, room)  
+                
+    #             if room_correct_count is None or room_total_frames is None:
+    #                 # Could not process this room, write "N/A"
+    #                 f.write(f"{room}, N/A\n")
+    #                 continue
+
+    #             # Compute room accuracy (if total frames > 0)
+    #             room_accuracy_float = (room_correct_count / room_total_frames
+    #                                    if room_total_frames > 0 else 0.0)
+    #             room_accuracy_percent = 100.0 * room_accuracy_float
+                
+    #             # Accumulate for session totals
+    #             session_total_correct += room_correct_count
+    #             session_total_frames  += room_total_frames
+                
+    #             # Write line for this room
+    #             f.write(f"{room}, {room_accuracy_percent:.2f}% "
+    #                     f"({room_correct_count} / {room_total_frames})\n")
+
+    #         # After all rooms in this session
+    #         if session_total_frames > 0:
+    #             session_accuracy_float = session_total_correct / session_total_frames
+    #             session_accuracy_percent = 100.0 * session_accuracy_float
+    #             # Write final line
+    #             f.write(f"SESSION_AVERAGE: {session_accuracy_percent:.2f}% "
+    #                     f"({session_total_correct} / {session_total_frames})\n")
+    #         else:
+    #             f.write("SESSION_AVERAGE: N/A\n")
+        
+    #     print(f"Session {session}: accuracy details written to {accuracy_file}.\n")
+    
+    for room in rooms:
+        # For each session, write results to a single text file:
+        accuracy_file = f"{room}_accuracy.txt"
         # We'll track total correct frames and total frames across all rooms:
-        session_total_correct = 0
-        session_total_frames  = 0
+        room_total_correct = 0
+        room_total_frames  = 0
         
         with open(accuracy_file, "w", encoding="utf-8") as f:
             # Process each room
-            for room in rooms:
+            for session in sessions:
                 # run(...) pipeline returns (room_correct_count, room_total_frames) or None
-                room_correct_count, room_total_frames = run(session, room)  
+                session_correct_count, session_total_frames = run(session, room)  
                 
-                if room_correct_count is None or room_total_frames is None:
+                if session_correct_count is None or session_total_frames is None:
                     # Could not process this room, write "N/A"
                     f.write(f"{room}, N/A\n")
                     continue
 
                 # Compute room accuracy (if total frames > 0)
-                room_accuracy_float = (room_correct_count / room_total_frames
-                                       if room_total_frames > 0 else 0.0)
-                room_accuracy_percent = 100.0 * room_accuracy_float
+                session_accuracy_float = (session_correct_count / session_total_frames
+                                       if session_total_frames > 0 else 0.0)
+                session_accuracy_percent = 100.0 * session_accuracy_float
                 
                 # Accumulate for session totals
-                session_total_correct += room_correct_count
-                session_total_frames  += room_total_frames
+                room_total_correct += session_correct_count
+                room_total_frames  += session_total_frames
                 
-                # Write line for this room
-                f.write(f"{room}, {room_accuracy_percent:.2f}% "
-                        f"({room_correct_count} / {room_total_frames})\n")
+                # Write line for this session
+                f.write(f"{session}, {session_accuracy_percent:.2f}% "
+                        f"({session_correct_count} / {session_total_frames})\n")
 
             # After all rooms in this session
-            if session_total_frames > 0:
-                session_accuracy_float = session_total_correct / session_total_frames
-                session_accuracy_percent = 100.0 * session_accuracy_float
+            if room_total_frames > 0:
+                room_accuracy_float = room_total_correct / room_total_frames
+                room_accuracy_percent = 100.0 * room_accuracy_float
                 # Write final line
-                f.write(f"SESSION_AVERAGE: {session_accuracy_percent:.2f}% "
-                        f"({session_total_correct} / {session_total_frames})\n")
+                f.write(f"ROOM_AVERAGE: {room_accuracy_percent:.2f}% "
+                        f"({room_total_correct} / {room_total_frames})\n")
             else:
-                f.write("SESSION_AVERAGE: N/A\n")
+                f.write("ROOM_AVERAGE: N/A\n")
         
-        print(f"Session {session}: accuracy details written to {accuracy_file}.\n")
-    
+        print(f"Room {room}: accuracy details written to {accuracy_file}.\n")
     
 if __name__ == "__main__":
     main()
