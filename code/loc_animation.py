@@ -61,6 +61,41 @@ action_list = [
     "NA"   # 32
 ]
 
+# 定义房间边界（这里以矩形为例），单位与预测坐标相同
+# 例如：假设 true_room 为 bedroom，且房间边界设置如下：
+# (x_min, x_max, y_min, y_max)
+# 房屋房间定义 (x_min, x_max, y_min, y_max)
+rooms = {
+    "kitchen": (0, 1.5, 4.563, 6),
+    "livingroom": (0, 8.5, 0, 4.563),
+    "bathroom": (1.5, 4.5, 4.563, 6.6),
+    "bedroom": (4.5, 8.5, 4.563, 7.5),
+    "Exit": (0, 0.5, 0, 0.5),
+    "Couch": (7, 7.5, 1, 3)
+}
+
+loc_nod = {
+    '2':   [0.630,   3.141,  1.439],
+    '3':   [0.340, 3.742, 0.871],
+    '5':   [1.906, 5.004, 1.557],
+    '16':  [8.572,   3.100,  1.405],
+    '15':  [7.745,   1.412,  0.901],
+    '7':   [1.5, 5.127, 1.232],
+    '8':   [3.764, 5.058, 0.912],
+    '9':   [2.008, 6.6, 1.352],
+    '10':  [4.5, 5.153, 1.444],
+    '11':  [7.733, 7.5, 1.643],
+    '12':  [7.956, 5.028, 0.881],
+    '13':  [5.365, 0.787, 0.892]
+}
+
+sensor_selection = {
+    'livingroom': ['2', '15', '16'],
+    'bathroom': ['7', '8', '9'],
+    'bedroom': ['10', '11', '12'],
+    'kitchen': ['2', '3', '5']
+}
+
 def load_data(session_path, node_idx, pi_version=3):
     """
     load complex data and datetime from raw data files
@@ -926,6 +961,7 @@ def save_localization_and_rooms(
     txt_file_path,
     loc_rdm_pred,
     predicted_rooms,
+    true_room,
     accuracy,
     correct_count
 ):
@@ -936,13 +972,13 @@ def save_localization_and_rooms(
     T = loc_rdm_pred.shape[0]
     with open(txt_file_path, "w", encoding="utf-8") as f:
         # Header
-        f.write("frame_idx, x(m), y(m), z(m), predicted_room\n")
+        f.write("frame_idx, x(m), y(m), z(m), predicted_room, true_room\n")
         
         # Per-frame lines
         for idx in range(T):
             x_val, y_val, z_val = loc_rdm_pred[idx]
             room = predicted_rooms[idx]
-            f.write(f"{idx}, {x_val:.4f}, {y_val:.4f}, {z_val:.4f}, {room}\n")
+            f.write(f"{idx}, {x_val:.4f}, {y_val:.4f}, {z_val:.4f}, {room}, {true_room}\n")
         
         # At the end: accuracy
         f.write(f"Accuracy: {accuracy*100:.2f}% "
@@ -950,34 +986,16 @@ def save_localization_and_rooms(
     
     print(f"Combined localization + room results saved to: {txt_file_path}")
 
-# --------------------------
-# 主函数
-def main():
-    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
-    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
-    loc_nod = {
-        '2':   [0.630,   3.141,  1.439],
-        '3':   [0.340, 3.742, 0.871],
-        '5':   [1.906, 5.004, 1.557],
-        '16':  [8.572,   3.100,  1.405],
-        '15':  [7.745,   1.412,  0.901],
-        '7':   [1.5, 5.127, 1.232],
-        '8':   [3.764, 5.058, 0.912],
-        '9':   [2.008, 6.6, 1.352],
-        '10':  [4.5, 5.153, 1.444],
-        '11':  [7.733, 7.5, 1.643],
-        '12':  [7.956, 5.028, 0.881],
-        '13':  [5.365, 0.787, 0.892]
-    }
-    nodes_anc = ['2', '5', '13']
+def run(session, true_room):
+    nodes_anc = sensor_selection[true_room]
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
+    # true_room = true_room
+    offset = -1.5
     
     # 1) 读取距离数据
     # 设置会话和路径（请根据实际情况修改）
-    session = "SB-94975U"
-    base_dir = r"data\new_dataset\kitchen_data"  # 路径需根据你的项目结构调整
-    true_room = "Kitchen"
-    offset = -1.5
+    # session = session
+    base_dir = f"data/new_dataset/{true_room}_data"  # 路径需根据你的项目结构调整
     # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
     distance_dict, sensor_ids = load_distance_data_new(session, base_dir=base_dir)
     # distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
@@ -1046,18 +1064,6 @@ def main():
     # plot_node_distance(range_data, nodes_anc[2])
     
     # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
-    # 定义房间边界（这里以矩形为例），单位与预测坐标相同
-    # 例如：假设 true_room 为 bedroom，且房间边界设置如下：
-    # (x_min, x_max, y_min, y_max)
-    # 房屋房间定义 (x_min, x_max, y_min, y_max)
-    rooms = {
-        "Kitchen": (0, 1.5, 4.563, 6),
-        "Living Room": (0, 8.5, 0, 4.563),
-        "Bathroom": (1.5, 4.5, 4.563, 6.6),
-        "Bedroom": (4.5, 8.5, 4.563, 7.5),
-        "Exit": (0, 0.5, 0, 0.5),
-        "Couch": (7, 7.5, 1, 3)
-    }
     # 4.1 对每一帧判断房间，并存入列表，同时统计判断正确的帧数
     predicted_rooms = []
     correct_count = 0
@@ -1077,6 +1083,7 @@ def main():
         room_result_file,
         loc_rdm_pred,
         predicted_rooms,
+        true_room,
         accuracy,
         correct_count
     )
@@ -1103,6 +1110,20 @@ def main():
     # )
 
     print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
+
+# --------------------------
+# 主函数
+def main():
+    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
+    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
+    
+    sessions = ["SB-94975U"]
+    rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
+    
+    for session in sessions:
+        for room in rooms:
+            run(session, room)
+    
     
 if __name__ == "__main__":
     main()
