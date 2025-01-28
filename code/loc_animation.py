@@ -119,11 +119,35 @@ loc_nod = {
     '16':  [8.572,   3.100,  1.405]
 }
 
+# (x_min, x_max, y_min, y_max)
+areas = {
+    "area1":  (0, 1.5, 0, 2.5),
+    "area2":  (0, 1.5, 2.5, 4.5),
+    "area3":  (0, 1.5, 4.5, 6),
+    "area4":  (1.5, 2.5, 0, 4.5),
+    "area5":  (2.5, 4.3, 0, 4.5),
+    "area6":  (4.3, 5.3, 0, 4.5),
+    "area7":  (1.5, 4.5, 4.5, 6.6),
+    "area8":  (5.3, 7.74, 0, 4.5),
+    "area9":  (7.74, 8.5, 0, 4.5),
+    "area10": (4.5, 8.5, 4.5, 7.5),
+}
+
 sensor_selection = {
-    'livingroom': ['2', '15', '16'],
-    'bathroom': ['7', '8', '9'],
-    'bedroom': ['10', '11', '12'],
-    'kitchen': ['2', '3', '5']
+    # 'livingroom': ['2', '15', '16'],
+    # 'bathroom':   ['7', '8', '9'],
+    # 'bedroom':    ['10', '11', '12'],
+    # 'kitchen':    ['2', '3', '5'],
+    "area1":      ['1', '6', '13', '16'],
+    "area2":      ['2', '5', '6', '13', '16'],
+    "area3":      ['2', '3', '5'],
+    "area4":      ['2', '4', '6', '13', '16'],
+    "area5":      ['2', '6', '13', '16'],
+    "area6":      ['2', '13', '16'],
+    "area7":      ['7', '8', '9'],
+    "area8":      ['2', '14', '16'],
+    "area9":      ['2', '14', '15', '16'],
+    "area10":     ['10', '11', '12']
 }
 
 def load_data(session_path, node_idx, pi_version=3):
@@ -663,8 +687,7 @@ def lse_localization_3d_with_mask(range_data, mask, loc_nod, offset=0.0):
     T = range_data["1"].shape[0]
     
     # Prepare output arrays
-    # loc_rdm_pred => shape (T,3), default [NaN,NaN,NaN]
-    loc_rdm_pred = np.full((T, 3), np.nan, dtype=float)
+    loc_rdm_pred = np.full((T, 3), 0.0, dtype=float)  # 0.0 is PROBLEMATIC!!!
     # used_sensors_per_frame => a list of lists
     used_sensors_per_frame = [[] for _ in range(T)]
 
@@ -1018,6 +1041,57 @@ def load_label(label_file):
         print(f"读取标签文件时出错: {e}")
         return None
 
+def update_mask_from_prediction(loc_rdm_pred, rooms, sensor_selection):
+    """
+    Create a new (T,16) mask array from each frame's predicted (x,y),
+    setting mask[t,i] = 1 if the sensor i+1 belongs to the predicted room.
+
+    Args:
+      loc_rdm_pred: np.ndarray of shape (T, 2) or (T,3)
+                    predicted coordinates. If shape is (T,3), we only use x,y.
+      rooms: dict { room_name: (xmin, xmax, ymin, ymax) }
+             e.g. {
+               "kitchen": (0,1.5,4.563,6),
+               "livingroom": (0,8.5,0,4.563),
+               ...
+             }
+      sensor_selection: dict { room_name: [ "2","15","16"] }
+             which sensor IDs are used for that room
+    Returns:
+      new_mask: np.ndarray of shape (T,16), each row has 1's
+                for the sensors in that room, else 0.
+    """
+    T = loc_rdm_pred.shape[0]
+    # Initialize the mask with all zeros
+    new_mask = np.zeros((T, 16), dtype=int)
+
+    # For each frame t, figure out which room the (x,y) coordinate belongs to
+    for t in range(T):
+        x, y = loc_rdm_pred[t, 0], loc_rdm_pred[t, 1]
+
+        # 1) Determine the predicted room from (x, y)
+        predicted_room = get_room_by_rect(x, y, areas)
+        # If it's "Unknown", we might leave the row all 0
+        if predicted_room == "Unknown":
+            continue  # or do something else if you like
+
+        # 2) Retrieve sensors for that room, if present
+        if predicted_room not in sensor_selection:
+            # e.g. if it doesn't map to a known room in sensor_selection
+            continue
+
+        sensors_for_room = sensor_selection[predicted_room]
+
+        # 3) Convert each sensor ID (e.g. "2") into zero-based index
+        #    and set new_mask[t,index] = 1
+        for sensor_id_str in sensors_for_room:
+            sensor_idx = int(sensor_id_str) - 1  # e.g. "2" -> 1
+            if 0 <= sensor_idx < 16:
+                new_mask[t, sensor_idx] = 1
+            # else out of range => ignore
+
+    return new_mask
+
 def save_localization_and_rooms(
     txt_file_path,
     loc_rdm_pred,
@@ -1271,22 +1345,104 @@ def run_with_mask(session, mask):
     # Return accuracy so main can aggregate
     return correct_count, T
 
+def iterative_run_with_mask(range_data, session, label, mask, iter):
+    nodes_anc = ['1', '2', '3', '4', '5', '6', '7', '8'\
+        '9', '10', '11', '12', '13', '14', '15', '16']
+    offset = -1.5
+    
+    T = range_data['1'].shape[0]
+    # Initialize the mask with all zeros
+    new_mask = np.zeros((T, 16), dtype=int)
+    
+    # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
+    loc_rdm_pred, used_sensors = lse_localization_3d_with_mask(
+        range_data, mask, loc_nod, offset=offset
+    )
+    
+    print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
+    
+    # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
+    # 4.1 对每一帧判断房间，并存入列表，同时统计判断正确的帧数
+    predicted_rooms = []
+    true_rooms = []
+    correct_count = 0
+    for t in range(T):
+        x, y = loc_rdm_pred[t, :2]
+        room = get_room_by_rect(x, y, rooms)
+        predicted_rooms.append(room)
+        true_room = action_to_room[label[t]]
+        true_rooms.append(true_room)
+        if room == true_room:
+            correct_count += 1
+            
+        sensors_for_area = []
+        area_name = get_room_by_rect(x, y, areas)
+        if area_name in sensor_selection:
+            sensors_for_area = sensor_selection[area_name]
+        for sensor_id_str in sensors_for_area:
+            sensor_idx = int(sensor_id_str) - 1  # "2" -> 1, "16"->15, etc.
+            if 0 <= sensor_idx < 16:
+                new_mask[t, sensor_idx] = 1
+
+    # 计算准确率
+    accuracy = correct_count / T
+
+    # 将房间判断结果保存到 txt 文件
+    room_result_file = f"results/all_activities/{session}/iter_{iter+1}_room_results.txt"
+    save_localization_and_rooms(
+        room_result_file,
+        loc_rdm_pred,
+        predicted_rooms,
+        true_rooms,
+        accuracy,
+        correct_count,
+        used_sensors
+    )
+
+    return new_mask
+
 
 # --------------------------
 # 主函数
 def main():
     sessions = ["SB-94975U", "0exwAT_ADL_1", "1eKOIF_ADL_1", "6e5iYM_ADL_1", "8F33UK", "85XB4Y", "eg35Wb_ADL_1",\
         "I2HSeJ_ADL_1", "NQHEKm_ADL_1", "rjvUbM_ADL_2", "RQAkB1_ADL_1", "SB-00834W", "SB-46951W", "SB-50274X",\
-            "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
+        "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
     # rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
     
-    # sessions = ["6e5iYM_ADL_1"]
+    # sessions = ["SB-94975U"]
     # rooms = ["bedroom"]
     
     for session in sessions:
+        # 1) 读取距离数据
+        # 设置会话和路径（请根据实际情况修改）
+        base_dir = f"data/new_dataset/no_minor_activities_final"  # 路径需根据你的项目结构调整
+        label_file = f"data/new_dataset/no_minor_activities_final/{session}_label.dat"
+        label = np.memmap(f"{label_file}", dtype='int64', mode='r').reshape(-1, )
+        # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
+        distance_dict, sensor_ids = load_distance_data_new(session, base_dir=base_dir)
+        # distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
+        if distance_dict is None:
+            return
+        
+        # 1) 计算距离数据
+        range_data = compute_range_data_from_memmap(
+            distance_dict=distance_dict,
+            sensor_ids=sensor_ids
+        )
+        
+        max_iter = 10
         mask_file = f"data/new_dataset/no_minor_activities_final/{session}_mask.dat"
         mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
-        _, _ = run_with_mask(session, mask)
+        
+        for iter in range(max_iter):
+            mask = iterative_run_with_mask(range_data, session, label, mask, iter)
+    
+    
+    # for session in sessions:
+    #     mask_file = f"data/new_dataset/no_minor_activities_final/{session}_mask.dat"
+    #     mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
+    #     _, _ = run_with_mask(session, mask)
     
     # for session in sessions:
     #     # For each session, write results to a single text file:
