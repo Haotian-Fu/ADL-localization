@@ -24,42 +24,68 @@ import matplotlib as mpl
 mpl.rcParams['animation.ffmpeg_path'] = r'C:\ffmpeg\bin\ffmpeg.exe'  # Update this path if necessary
 
 # 定义预定义的动作列表，索引对应标签值
-# 0 表示 'No action'
 action_list = [
-    "No action",  # 0
-    "Walk to kitchen",  # 1
-    "Take plate out from cabinet",  # 2
-    "Take food out from fridge",  # 3
-    "Take cup out of cabinet",  # 4
-    "Take drink out of fridge",  # 5
-    "Pour the drink into the cup",  # 6
-    "Walk to table and eat the food",  # 7
-    "Place the items on the sink",  # 8
-    "Walk over to the couch",  # 9
-    "Read magazine for 30 seconds",  # 10
-    "Walk to the bathroom",  # 11
-    "Shower simulation",  # 12
-    "Brush teeth",  # 13
-    "Wash face",  # 14
-    "Simulate using toilet",  # 15
-    "Walk to kitchen sink",  # 16
-    "Simulate washing dishes",  # 17
-    "Washing hands",  # 18
-    "Walk to the bedroom",  # 19
-    "Hang towel in cabinet",  # 20
-    "Remove shoes",  # 21
-    "Lie down on the bed",  # 22
-    "Get up and take on shoes",  # 23
-    "Watch the video for 30 seconds",  # 24
-    "Enter shower stall",  # 25
-    "Get another towel",  # 26
-    "Fold and place it in the cabinet",  # 27
-    "Get up and stay seated",  # 28
-    "Remove the device and wear your shoes",  # 29
-    "NA",  # 30
-    "NA",  # 31
-    "NA"   # 32
+    "Walk to kitchen",            # 0
+    "Take plate out from cabinet",# 1
+    "Take food out from fridge",  # 2
+    "Take cup out of cabinet",    # 3
+    "Take drink out from fridge", # 4
+    "Pour the drink into the cup",# 5
+    "Walk over to the couch",     # 6
+    "Read magazine for 30 seconds", # 7
+    "Walk to the bathroom",       # 8
+    "Shower simulation",          # 9
+    "Brush teeth",                #10
+    "Wash face",                  #11
+    "Simulate using toilet",      #12
+    "Walk to kitchen sink",       #13
+    "Washing hands",              #14
+    "Walk to the bedroom",        #15
+    "Hang towel in cabinet",      #16
+    "Remove shoes",               #17
+    "Lie down on the bed",        #18
+    "Get up and take on shoes",   #19
+    "Watch the video for 30 seconds", #20
+    "Get another towel",          #21
+    "Fold and place it in the cabinet", #22
+    "Get up and stay seated",     #23
+    "Remove the device and wear your shoes" #24
 ]
+
+# Example: the first 6 actions belong to "kitchen"
+# Next 5 belong to "bathroom"
+# Then 5 belong to "livingroom"
+# Then 8 belong to "bedroom"
+action_to_room = {
+    0: "kitchen",  # "Walk to kitchen"
+    1: "kitchen",  # "Take plate out from cabinet"
+    2: "kitchen",  # "Take food out from fridge"
+    3: "kitchen",  # "Take cup out of cabinet"
+    4: "kitchen",  # "Take drink out from fridge"
+    5: "kitchen",  # "Pour the drink into the cup"
+
+    6: "livingroom",  # "Walk over to the couch"
+    7: "livingroom",  # "Read magazine for 30 seconds"
+    8: "livingroom",  # "Walk to the bathroom"
+    9: "livingroom",  # "Walk to kitchen sink"
+    10: "livingroom", # "Watch the video for 30 seconds"
+
+    11: "bathroom",  # "Shower simulation"
+    12: "bathroom",  # "Brush teeth"
+    13: "bathroom",  # "Wash face"
+    14: "bathroom",  # "Simulate using toilet"
+    15: "bathroom",  # "Washing hands"
+    16: "bathroom",  # "Walk to the bedroom" (if you had that in bathroom list)
+    
+    17: "bedroom",   # "Hang towel in cabinet"
+    18: "bedroom",   # "Remove shoes"
+    19: "bedroom",   # "Lie down on the bed"
+    20: "bedroom",   # "Get up and take on shoes"
+    21: "bedroom",   # "Get another towel"
+    22: "bedroom",   # "Fold and place it in the cabinet"
+    23: "bedroom",   # "Get up and stay seated"
+    24: "bedroom"    # "Remove the device and wear your shoes"
+}
 
 # 定义房间边界（这里以矩形为例），单位与预测坐标相同
 # 例如：假设 true_room 为 bedroom，且房间边界设置如下：
@@ -75,18 +101,22 @@ rooms = {
 }
 
 loc_nod = {
+    '1':   [0.289, 2.832, 1.410],
     '2':   [0.630,   3.141,  1.439],
     '3':   [0.340, 3.742, 0.871],
+    '4':   [2.104, 4.534, 1.480],
     '5':   [1.906, 5.004, 1.557],
-    '16':  [8.572,   3.100,  1.405],
-    '15':  [7.745,   1.412,  0.901],
+    '6':   [4.346, 4.273, 0.894],
     '7':   [1.5, 5.127, 1.232],
     '8':   [3.764, 5.058, 0.912],
     '9':   [2.008, 6.6, 1.352],
     '10':  [4.5, 5.153, 1.444],
     '11':  [7.733, 7.5, 1.643],
     '12':  [7.956, 5.028, 0.881],
-    '13':  [5.365, 0.787, 0.892]
+    '13':  [5.365, 0.787, 0.892],
+    '14':  [5.687, 0.749, 0.885],
+    '15':  [7.745,   1.412,  0.901],
+    '16':  [8.572,   3.100,  1.405]
 }
 
 sensor_selection = {
@@ -612,68 +642,76 @@ def lse_localization_3d(range_data, nodes_anc, loc_nod, offset=0.0):
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     return loc_rdm_pred
 
-def lse_localization_3d_with_mask(range_data, mask, nodes_anc, loc_nod, offset=0.0):
+def lse_localization_3d_with_mask(range_data, mask, loc_nod, offset=0.0):
     """
-    Perform 3D LSE localization but only use sensors indicated by 'mask'.
-    
-    Parameters:
-      range_data: dict
-        { sensor_id: array of shape (T,) }, the distance measurements for each sensor.
-      mask: np.ndarray of shape (T,16)
-        mask[t, i] == 1 => sensor i is valid at frame t; 0 => skip that sensor's measurement
-      nodes_anc: list of str
-        e.g. ["7", "8", "9"], the sensor IDs for anchors used in localization
-      loc_nod: dict
-        { sensor_id: [x, y, z] }, anchor coordinates
-      offset: float
-        optional offset applied to each distance measurement
+    Perform 3D LSE localization using a (T,16) mask to decide which sensors
+    to use each frame. We assume 16 possible sensors, labeled "1" through "16".
+
+    - mask[t, i] == 1  => sensor i+1 is active for frame t
+    - mask[t, i] == 0  => skip that sensor at frame t
+
+    If fewer than 3 sensors are active at a frame, we skip that frame (fill [NaN, NaN, NaN]).
+
     Returns:
-      loc_rdm_pred: np.ndarray of shape (T, 3)
-        predicted (x, y, z) for each frame
+      loc_rdm_pred: np.ndarray of shape (T, 3). 
+                    Each row is either the solved (x,y,z) or [NaN,NaN,NaN] if skipped.
+      used_sensors_per_frame: list of length T, each an array/list of sensor_ids used at that frame
     """
-    # 1) The number of frames is based on one anchor's range_data
-    #    (They should all have the same T)
-    T = range_data[nodes_anc[0]].shape[0]
-    loc_rdm_pred = []
+    import math
+    
+    # We'll get T from range_data["1"] shape:
+    T = range_data["1"].shape[0]
+    
+    # Prepare output arrays
+    # loc_rdm_pred => shape (T,3), default [NaN,NaN,NaN]
+    loc_rdm_pred = np.full((T, 3), np.nan, dtype=float)
+    # used_sensors_per_frame => a list of lists
+    used_sensors_per_frame = [[] for _ in range(T)]
 
-    print("Starting 3D LSE Localization with per-frame mask...")
+    print("Starting 3D LSE with a (T,16) mask, storing used sensors per frame...")
 
-    # 2) For each time frame t
     for t in tqdm(range(T), desc="3D Localizing"):
-        # Create a new 3D LSE project
+        # 1) Gather active sensors from the mask
+        active_sensors = []
+        for i in range(16):
+            if mask[t, i] == 1:
+                sensor_id = str(i + 1)  # e.g. index i=0 => sensor "1"
+                active_sensors.append(sensor_id)
+        
+        # Store the list of active sensors for debugging/report
+        used_sensors_per_frame[t] = active_sensors
+        
+        # 2) If fewer than 3 sensors => skip
+        if len(active_sensors) < 3:
+            continue
+
+        # 3) Build LSE project
         P = lx.Project(mode='3D', solver='LSE')
-        
-        # Add anchors with known (x,y,z)
-        for nod in nodes_anc:
-            P.add_anchor(nod, loc_nod[nod])
-        
-        # Add a target
+
+        # Add anchors for each *active* sensor
+        for sensor_id in active_sensors:
+            P.add_anchor(sensor_id, loc_nod[sensor_id])
+
+        # Create target
         target, _ = P.add_target()
 
-        # 3) For each anchor node, check mask.
-        #    Example: If sensor ID "7" => index is int("7") - 1 = 6
-        #    You may need your own mapping from sensor_id to index.
-        for nod in nodes_anc:
-            sensor_idx = int(nod) - 1  # <--- 1-based ID => zero-based index
-            if mask[t, sensor_idx] == 1:
-                # Use this sensor's measurement
-                measure_val = range_data[nod][t] + offset
-                target.add_measure(nod, measure_val)
-            else:
-                # Skip this sensor for this frame
-                pass
+        # Add measurements from these sensors
+        for sensor_id in active_sensors:
+            measure_val = range_data[sensor_id][t] + offset
+            target.add_measure(sensor_id, measure_val)
 
-        # Solve the localization
+        # Solve the LSE
         P.solve()
 
-        # Extract the (x, y, z) from the target
+        # Extract the (x,y,z)
         loc_current = np.array([target.loc.x, target.loc.y, target.loc.z])
-        loc_rdm_pred.append(loc_current)
-
-    loc_rdm_pred = np.array(loc_rdm_pred)  # shape (T, 3)
+        
+        # Put into our array at index t
+        loc_rdm_pred[t] = loc_current
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
-    return loc_rdm_pred
+    return loc_rdm_pred, used_sensors_per_frame
+
 
 # --------------------------
 # 判断被观察者所处房间的函数（这里以矩形边界为例）
@@ -984,24 +1022,32 @@ def save_localization_and_rooms(
     txt_file_path,
     loc_rdm_pred,
     predicted_rooms,
-    true_room,
+    true_rooms,
     accuracy,
-    correct_count
+    correct_count,
+    used_sensors
 ):
     """
-    Write frame_idx, (x, y, z), and predicted room
-    to a single text file, plus final accuracy line.
+    Write frame_idx, (x, y, z), predicted_room, true_room,
+    plus which sensors were used, and final accuracy line.
     """
     T = loc_rdm_pred.shape[0]
     with open(txt_file_path, "w", encoding="utf-8") as f:
         # Header
-        f.write("frame_idx, x(m), y(m), z(m), predicted_room, true_room\n")
+        f.write("frame_idx, x(m), y(m), z(m), predicted_room, true_room, used_sensors\n")
         
         # Per-frame lines
         for idx in range(T):
             x_val, y_val, z_val = loc_rdm_pred[idx]
             room = predicted_rooms[idx]
-            f.write(f"{idx}, {x_val:.4f}, {y_val:.4f}, {z_val:.4f}, {room}, {true_room}\n")
+            true_room = true_rooms[idx]
+            
+            # Convert used_sensors[idx] to a string, e.g. "['1','5','12']"
+            # or just a space-joined string => "1 5 12"
+            sensors_str = " ".join(used_sensors[idx])
+            
+            f.write(f"{idx}, {x_val:.4f}, {y_val:.4f}, {z_val:.4f}, "
+                    f"{room}, {true_room}, {sensors_str}\n")
         
         # At the end: accuracy
         f.write(f"Accuracy: {accuracy*100:.2f}% "
@@ -1009,7 +1055,7 @@ def save_localization_and_rooms(
     
     print(f"Combined localization + room results saved to: {txt_file_path}")
 
-def run(session, true_room, mask):
+def run(session, true_room):
     nodes_anc = sensor_selection[true_room]
     node_map = {'2':2, '15':15, '16':16, '13':13, '6':6, '14':14, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12}
     # true_room = true_room
@@ -1075,8 +1121,7 @@ def run(session, true_room, mask):
     # save_range_data_txt(range_data, save_path_distance)
     
     # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
-    # loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=offset)
-    loc_rdm_pred = lse_localization_3d_with_mask(range_data, mask, nodes_anc, loc_nod, offset=offset)
+    loc_rdm_pred = lse_localization_3d(range_data, nodes_anc, loc_nod, offset=offset)
     
     print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
     
@@ -1136,25 +1181,112 @@ def run(session, true_room, mask):
     # Return accuracy so main can aggregate
     return correct_count, T
 
+def run_with_mask(session, mask):
+    nodes_anc = ['1', '2', '3', '4', '5', '6', '7', '8'\
+        '9', '10', '11', '12', '13', '14', '15', '16']
+    offset = -1.5
+    
+    # 1) 读取距离数据
+    # 设置会话和路径（请根据实际情况修改）
+    base_dir = f"data/new_dataset/no_minor_activities_final"  # 路径需根据你的项目结构调整
+    label_file = f"data/new_dataset/no_minor_activities_final/{session}_label.dat"
+    label = np.memmap(f"{label_file}", dtype='int64', mode='r').reshape(-1, )
+    # 读取距离数据（直接从 .dat 文件中读取 distance 部分数据）
+    distance_dict, sensor_ids = load_distance_data_new(session, base_dir=base_dir)
+    # distance_dict, sensor_ids = load_distance_data(session, base_dir=base_dir)
+    if distance_dict is None:
+        return
+    
+    # 1) 计算距离数据
+    range_data = compute_range_data_from_memmap(
+        distance_dict=distance_dict,
+        sensor_ids=sensor_ids
+    )
+    T = range_data['1'].shape[0]
+    
+    # 2) 3D LSE 定位，获得预测的 (x, y, z) 坐标
+    loc_rdm_pred, used_sensors = lse_localization_3d_with_mask(
+        range_data, mask, loc_nod, offset=offset
+    )
+    
+    print("3D Localization Completed. Results shape:", loc_rdm_pred.shape)
+    
+    # # 3) 绘制指定节点的距离数据折线图，例如绘制节点 '16'
+    # plot_node_distance(range_data, nodes_anc[0])
+    # plot_node_distance(range_data, nodes_anc[1])
+    # plot_node_distance(range_data, nodes_anc[2])
+    
+    # 4) 对预测的 (x,y) 坐标进行房间判断，并保存房间判断结果到一个 txt 文件。
+    # 4.1 对每一帧判断房间，并存入列表，同时统计判断正确的帧数
+    predicted_rooms = []
+    true_rooms = []
+    correct_count = 0
+    for t in range(T):
+        x, y = loc_rdm_pred[t, :2]
+        room = get_room_by_rect(x, y, rooms)
+        predicted_rooms.append(room)
+        true_room = action_to_room[label[t]]
+        true_rooms.append(true_room)
+        if room == true_room:
+            correct_count += 1
+
+    # 计算准确率
+    accuracy = correct_count / T
+
+    # 将房间判断结果保存到 txt 文件
+    room_result_file = f"{session}_all_activities_offset{offset}_room_results.txt"
+    save_localization_and_rooms(
+        room_result_file,
+        loc_rdm_pred,
+        predicted_rooms,
+        true_rooms,
+        accuracy,
+        correct_count,
+        used_sensors
+    )
+    print(f"Room judgment results saved to: {room_result_file}")
+    
+    # # 5) 生成动画：在每一帧上显示房间判断，并根据判断结果设置背景颜色（正确：浅绿色，错误：浅红色）
+    # # 这里默认真值为 "bedroom"
+    # gif_save_path = 'localization_animation_room.gif'
+    # mp4_save_path = 'localization_animation_room.mp4'
+    # ffmpeg_path = r'C:\ffmpeg\bin\ffmpeg.exe'  # 修改为实际路径
+    
+    # # 注意：动画部分仍绘制 (x,y) 投影，同时在标题中显示房间判断结果，并设置背景颜色
+    # # save_animation_gif_with_room(loc_rdm_pred, gif_save_path, frame_start=0, frame_end=281, rooms=rooms, true_room="living", result_txt="room_results_anim.txt")
+    # save_animation_mp4_with_room(
+    #     loc_rdm_pred, 
+    #     mp4_save_path=mp4_save_path, 
+    #     frame_start=0, 
+    #     # frame_end=label_to_action[action_label].shape[0]-1, 
+    #     frame_end=range_data[nodes_anc[0]].shape[0]-1,
+    #     ffmpeg_path=ffmpeg_path,
+    #     rooms=rooms, 
+    #     true_room=true_room,
+    #     result_txt="room_results_anim.txt"
+    # )
+
+    print(f"Accuracy: {accuracy*100:.2f}% ({correct_count} correct frames out of {T})")
+    
+    # Return accuracy so main can aggregate
+    return correct_count, T
+
+
 # --------------------------
 # 主函数
 def main():
-    session_path = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1'
-    seg_file = r'D:\OneDrive\桌面\code\ADL_localization\data\6e5iYM_ADL_1\segment\2023-06-29-16-54-23_6e5iYM_ADL_1_shifted.txt'
-    
-    # sessions = ["SB-94975U", "0exwAT_ADL_1", "1eKOIF_ADL_1", "6e5iYM_ADL_1", "8F33UK", "85XB4Y", "eg35Wb_ADL_1",\
-    #     "I2HSeJ_ADL_1", "NQHEKm_ADL_1", "rjvUbM_ADL_2", "RQAkB1_ADL_1", "SB-00834W", "SB-46951W", "SB-50274X",\
-    #         "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
+    sessions = ["SB-94975U", "0exwAT_ADL_1", "1eKOIF_ADL_1", "6e5iYM_ADL_1", "8F33UK", "85XB4Y", "eg35Wb_ADL_1",\
+        "I2HSeJ_ADL_1", "NQHEKm_ADL_1", "rjvUbM_ADL_2", "RQAkB1_ADL_1", "SB-00834W", "SB-46951W", "SB-50274X",\
+            "SB-50274X-2", "SB-94975U-2", "YhsHv0_ADL_1", "YpyRw1_ADL_2"]
     # rooms = ["livingroom", "bathroom", "bedroom", "kitchen"]
     
-    sessions = ["SB-94975U"]
-    rooms = ["livingroom"]
+    # sessions = ["6e5iYM_ADL_1"]
+    # rooms = ["bedroom"]
     
     for session in sessions:
-        for room in rooms:
-            mask_file = f"data/new_dataset/{room}_data/{session}_mask_mannual.dat"
-            mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
-            _, _ = run(session, room, mask)
+        mask_file = f"data/new_dataset/no_minor_activities_final/{session}_mask.dat"
+        mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
+        _, _ = run_with_mask(session, mask)
     
     # for session in sessions:
     #     # For each session, write results to a single text file:

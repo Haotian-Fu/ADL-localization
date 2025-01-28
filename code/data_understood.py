@@ -139,7 +139,6 @@ def main():
     # 定义预定义的动作列表，索引对应标签值
     # 0 表示 'No action'
     action_list = [
-        "No action",  # 0
         "Walk to kitchen",  # 1
         "Take plate out from cabinet",  # 2
         "Take food out from fridge",  # 3
@@ -176,7 +175,7 @@ def main():
 
     # 定义所有会话的列表
     sessions = [
-        "SB-94975U"
+        "0exwAT_ADL_1"
         # 在这里添加更多的 session 名称
     ]
 
@@ -191,19 +190,25 @@ def main():
         # data_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_data.dat"
         # label_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_label.dat"
         # mask_file = f"D:/OneDrive/桌面/code/ADL_localization/data/all_activities/{session}_mask_mannual.dat"
-        data_file = f"data/new_dataset/livingroom_data/{session}_data.dat"
-        # label_file = f"data/new_dataset/bedroom_data/{session}_label.dat"
-        mask_file = f"data/new_dataset/livingroom_data/{session}_mask_mannual.dat"
+        data_file = f"data/new_dataset/no_minor_activities_final/{session}_data.dat"
+        label_file = f"data/new_dataset/no_minor_activities_final/{session}_label.dat"
+        mask_file = f"data/new_dataset/no_minor_activities_final/{session}_mask.dat"
         
         data = np.memmap(f"{data_file}", dtype='float32', mode='r').reshape(16, -1, 220)
+        label = np.memmap(f"{label_file}", dtype='int64', mode='r').reshape(-1, )
+        mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
+        
+        mask_file = f"data/new_dataset/no_minor_activities_final/{session}_mask.dat"
         mask = np.memmap(f"{mask_file}", dtype='float32', mode='r').reshape(-1, 16)
         
         print(data.shape)
+        print(label.shape)
         print(mask.shape)
-        print(mask)
-        # # Convert mask to list and print
-        # mask_list = mask.tolist()
-        # print(mask_list)
+        # print(label)
+        # Convert mask to list and print
+        mask_list = mask.tolist()
+        # print(f'label value from frame 2000 to end: \n{label_list[2000:]}')
+        print(mask_list[0])
         
 
         # # 读取数据文件
