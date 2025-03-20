@@ -91,6 +91,9 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
         return []
 
     def update(frame):
+        # 如果任意节点的测距 < 0，说明该帧此节点无效
+        if any(range_data[nod][frame] < 0 for nod in nodes_anc):
+            return []
         # 更新主图
         ax_main.clear()
         draw_room_layout(ax_main)
@@ -126,7 +129,7 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
         text_str = f"Predicted (x,y): ({current_point[0]:.2f}, {current_point[1]:.2f})\n"
         # 依次打印每个 sensor 节点的测距值
         for nod in nodes_anc:
-            sensor_distance = range_data[nod][start + frame]
+            sensor_distance = range_data[nod][frame]
             text_str += f"Node {nod} distance: {sensor_distance:.2f}\n"
         ax_text.text(0.02, 0.98, text_str, transform=ax_text.transAxes, fontsize=10, 
                      verticalalignment='top',
@@ -151,33 +154,58 @@ def save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame
     print(f"Room judgment results saved to: {result_txt}")
 
 # ------------------------------
+# 定义参与定位的节点列表
+# nodes_anc = ["2", "6", "7", "8", "9", "10", "11", "12", "16"]
+nodes_anc = ["7", "8", "9"]
+
+data_session = "SB-94975U"
+
 # 加载我们自己保存的距离数据（npy 文件路径根据实际情况修改）
-distance_node7 = np.load("data/dist/SB-94975U/SB-94975U_node7_dist.npy")
-distance_node8 = np.load("data/dist/SB-94975U/SB-94975U_node8_dist.npy")
-distance_node9 = np.load("data/dist/SB-94975U/SB-94975U_node9_dist.npy")
+distance_nodes = {}
+for node in nodes_anc:
+    distance_node = np.load(f"data/dist/{data_session}/{data_session}_node{node}_dist.npy")
+    distance_nodes[node] = distance_node
+# distance_node7 = np.load("data/dist/SB-94975U/SB-94975U_node7_dist.npy")
+# distance_node8 = np.load("data/dist/SB-94975U/SB-94975U_node8_dist.npy")
+# distance_node9 = np.load("data/dist/SB-94975U/SB-94975U_node9_dist.npy")
+# distance_node10 = np.load("data/dist/SB-94975U/SB-94975U_node10_dist.npy")
+# distance_node11 = np.load("data/dist/SB-94975U/SB-94975U_node11_dist.npy")
+# distance_node12 = np.load("data/dist/SB-94975U/SB-94975U_node12_dist.npy")
+# distance_node2 = np.load("data/dist/SB-94975U/SB-94975U_node2_dist.npy")
+# distance_node6 = np.load("data/dist/SB-94975U/SB-94975U_node6_dist.npy")
+# distance_node16 = np.load("data/dist/SB-94975U/SB-94975U_node16_dist.npy")
 
 # 构造距离数据字典，key 为节点编号（字符串），value 为对应的距离数据数组
 range_data = {
-    "7": distance_node7,
-    "8": distance_node8,
-    "9": distance_node9
+    "7": distance_nodes["7"],
+    "8": distance_nodes["8"],
+    "9": distance_nodes["9"]
+    # "10": distance_nodes["10"],
+    # "11": distance_nodes["11"],
+    # "12": distance_nodes["12"],
+    # "2": distance_nodes["2"],
+    # "6": distance_nodes["6"],
+    # "16": distance_nodes["16"]
 }
-
-# 定义参与定位的节点列表
-nodes_anc = ["7", "8", "9"]
 
 # 假定已定义起始索引 start 与终止索引 right
 # start = 6384   # 示例起始索引
 # right = 10610  # 示例终止索引
-start = 7500   # 示例起始索引
-right = 10000  # 示例终止索引
+# start = 0   # 示例起始索引
+# right = 10000  # 示例终止索引
+intensity_threshold = 0.0025  # 只考虑强度大于该阈值的传感器数据
 
 # 选取切片数据，并以最小长度确定迭代帧数
-T = min([range_data[nod][start:right].shape[0] for nod in nodes_anc])
+T = min([range_data[nod][:].shape[0] for nod in nodes_anc])
 print(f"Performing localization on {T} frames")
 
 loc_rdm_pred = []
+valid_frames = []
 for t in tqdm(range(T), desc="2D Localizing"):
+    # 如果任意节点的测距 < 0，说明该帧此节点无效
+    if any(range_data[nod][t] < 0 for nod in nodes_anc):
+        continue
+    
     # 创建定位工程，选择2D LSE 定位
     P = lx.Project(mode='2D', solver='LSE')
     # 添加参与定位的锚点
@@ -187,20 +215,21 @@ for t in tqdm(range(T), desc="2D Localizing"):
     target, _ = P.add_target()
     # 给每个锚点添加对应的测距值（这里取切片数据）
     for nod in nodes_anc:
-        measure_val = range_data[nod][start + t]
+        measure_val = range_data[nod][t]
         target.add_measure(nod, measure_val)
     # 求解定位问题
     P.solve()
     # 提取定位结果（2D 定位时 z 通常为 0）
     loc_rdm_pred.append([target.loc.x, target.loc.y, target.loc.z])
+    valid_frames.append(t)  # 记录有效帧索引
 
 loc_rdm_pred = np.array(loc_rdm_pred)
 
 # 保存 MP4 动画及房间判断结果
-mp4_save_path = "localization_animation_room.mp4"
-ffmpeg_path = r"C:\ffmpeg\bin\ffmpeg.exe"  # 请根据实际情况修改 FFmpeg 路径
 frame_start = 0
-frame_end = T - 1
+frame_end = len(valid_frames) - 1  # **改为有效帧数**
 true_room = "bathroom"  # 示例真值房间名称
+mp4_save_path = f"{data_session}_localization_animation_{true_room}.mp4"
+ffmpeg_path = r"C:\ffmpeg\bin\ffmpeg.exe"  # 请根据实际情况修改 FFmpeg 路径
 
 save_animation_mp4_with_room(loc_rdm_pred, mp4_save_path, frame_start, frame_end, ffmpeg_path, rooms, true_room, result_txt="room_results.txt")
